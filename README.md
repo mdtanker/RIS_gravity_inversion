@@ -25,7 +25,10 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 * Square grid network 
 * different grid spacing for each layer 
 
-
+### Growth 3.0 Fortran Code
+* 3D
+* accepts seeds
+* 
      
 
  
