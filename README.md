@@ -7,11 +7,19 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 * 3D 
 * Square grid network 
 
+### MiraGeoscience 
+* 3D
+* offer Vertical Prisms inversion
+
 ### Fatiando a Terra / Harmonica 
 
 ### SimPEG 
+* 3D
+* mesh based, not well suited (yet) for vertical prism inversion
 
 ### PyGIMLI 
+* 3D
+* mesh based
 
 ### GNS Woodward Fortran Code 
 * 3D 
