@@ -173,6 +173,7 @@ class InversionMainWindow(QMainWindow, grav_bathy_inversion_GUI_geometry.Ui_Main
                 NI=len(XI)
                 self.line_input_ice_surface_file.setText(FILEICE)
                 self.line_ice_size.setText(str(NI)+" points")
+
             if FILEWATER:
                 INPUT_WATER=pd.read_csv(FILEWATER, header=0, index_col=None, sep=',')
                 XW=np.array(INPUT_WATER.X) 
