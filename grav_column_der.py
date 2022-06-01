@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Nov 12 12:33:04 2019
-function to calculate the derivative of gravity field of a vertical column using with respect to the depth if the top of the column
+function to calculate the derivative of gravity field of a vertical 
+column using with respect to the depth if the top of the column
 @author: fabiot
 """
 
