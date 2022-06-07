@@ -36,20 +36,29 @@ I'm working on a 3D gravity inversion for my Ph.D. to model the bathymetry benea
           * [`harmonica.DatasetAccessorPrismLayer.update_top_bottom()`](https://www.fatiando.org/harmonica/latest/api/generated/harmonica.DatasetAccessorPrismLayer.html#harmonica.DatasetAccessorPrismLayer) 
   
 * currently this inversion works by finding the least-squares solution to the matrix equation Ax=b, where A is the Jacobian matrix of the vertical derivative of gravity acceleration, and b is the initial misfit between observed and forward gravity.  
-     * the least squares solution is found with [`scipy.sparse.linalg.lsqr`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.lsqr.html) 
+     * the least squares solution is found with [`scipy.sparse.linalg.lsqr()`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.lsqr.html) 
      * the vertical derivative is approximated with the Hammer approximation of prisms, using annuluses as opposed to prisms.
-<img src="https://user-images.githubusercontent.com/81199856/172271303-a10a769b-390f-47d0-b304-209553254f2c.png" width="1000" >   
+<img src="https://user-images.githubusercontent.com/81199856/172271303-a10a769b-390f-47d0-b304-209553254f2c.png" width="1000" >
+     * this is just the method I already had implemented, but I'm happy to alter this and would appreciate suggestions.  
 
 
- list some of the features specific to my use case I would hope to be included, some which are more necessary than others. Bolded features are already available / included in my initial inversion code.
+
+
  ## Features to add:
 * enforce constraint point (points of known bathymetry) by multiplying `surface_correction` by a constraints grid 
-          * 0's at constraints, linearly increasing to 1's at specified distance from nearest constraints
+          * 0's at constraints, linearly increasing to 1's at a specified distance from nearest constraints
           * [`scipy.spatial.cKDTree.query()`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.query.html) to get grid of minimum distances to constraints
           * [`gmt grdmath`](https://docs.generic-mapping-tools.org/latest/grdmath.html) LE and GE to set constraints to 0 and other points to 1
           * [`gmt grdblend`](https://docs.generic-mapping-tools.org/latest/grdblend.html) to merge the clipped grids
           * and [`rioxarray.interpolate_na()`](https://corteva.github.io/rioxarray/stable/rioxarray.html#rioxarray.raster_array.RasterArray.interpolate_na) to linearly interpolate between 0 and 1
  <img src="https://user-images.githubusercontent.com/81199856/172266356-a9dfd52c-5083-4764-979a-750495945edd.png" width="200" >    
+
+* allow irregular grid spacing within each layer (i.e. grid spacing increase for a buffer zone, outside the main area of interest)
+     * could use [`discretize.TreeMesh().`](https://discretize.simpeg.xyz/en/main/api/generated/discretize.TreeMesh.html) from SimPEG.
+* density inversion
+     * similar to the above geometry inversion, but updated each prism's density to minimize the misfit.
+     * this is useful for the initial setup of the geometry inversion, allow the regional field to be accounted for in a layers density, leaving only the residual field left to invert on.
+     
 
 **Are you willing to help implement and maintain this feature?** 
 <!--
