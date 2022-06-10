@@ -1,5 +1,5 @@
 bathymetry_data/BedMachineAntarctica_2020-07-15_v02.nc
-inversion_layers/constraints_xy.txt 
 bathymetry_data/bedmachine_RIGGS.csv
 bathymetry_data/bedmap_all.txt 
 bathymetry_data/bedmap2_bed.nc
+inversion_layers/constraints_xy.txt 

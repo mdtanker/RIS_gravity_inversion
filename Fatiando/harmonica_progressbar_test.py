@@ -51,7 +51,7 @@ prisms = hm.prism_layer(
 coordinates = vd.grid_coordinates(region, spacing=spacing, extra_coords=1e3)
 gravity = prisms.prism_layer.gravity(
     coordinates, field="g_z", 
-    progressbar=True,
+    progressbar=False,
         )
 
 # Plot gravity field

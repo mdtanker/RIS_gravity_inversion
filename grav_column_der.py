@@ -10,7 +10,7 @@ from scipy import *
 from numpy import *
 def grav_column_der(x0,y0,z0,xc,yc,z1,z2,res,rho):
     r=sqrt((x0-xc)**2+(y0-yc)**2)
-    # r1=r - sqrt(res/2) # added
+    # r1=r - sqrt(res/2)
     # r2=r + sqrt(res/2) 
     r1=r-0.5*res # fabio's original
     r2=r+0.5*res # fabio's original   
@@ -18,7 +18,7 @@ def grav_column_der(x0,y0,z0,xc,yc,z1,z2,res,rho):
 #        r1=0
 #        r2=0.5*res
 #        f=4/pi
-    r1[r1<0]=0
+    r1[r1<0]=0 # will fail if prism is under obs point
     r2[r1<0]=0.5*res
     f=res**2/(pi*(r2**2-r1**2)) #eq 2.19 in McCubbine 2016 Thesis
     # anomaly_grad=0.0419*f*rho*(z1-z0)*(1/sqrt(r1**2+(z1-z0)**2)-1/sqrt(r2**2+(z1-z0)**2))  # switched r1 and r2  
