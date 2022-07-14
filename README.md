@@ -1,6 +1,34 @@
 # RIS_gravity_inversion
 Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inverison to model the sub ice shelf bathymetry. 
 
+## To Do
+
+### Short-term
+* switch from using a gravity grid to using a gravity dataframe and hm.EquivalentSources.grid to interpolate on regular grid.
+* save iterations to dataframe or dataset and move plotting outside of inversion function
+* add spacing parameter to grdfilters
+* use rosetta ice thickness
+* do forward model with rosetta density
+* use Boule to remove normal gravity
+    - using rosetta "FAG_levelled" channel
+* fix density inversion
+* use rioxarray.pad_box or xarray.pad for padding
+* use rioxarray.reproject_match for resampling
+* use vd.median_distance for constraints grid construction
+* use hm.EquivalentSources.jacobian to calculate jac.
+* add hm.EquivalentSources as method for regional calc
+* use vd.Trend.jacobian for regularization
+* use vd.base.least_squares for optimization
+
+### Long-term
+* fix pyvista to work on remote server
+    * use pvxarray for plotting topographies in 3D
+* use discretize package to increase grid spacing outside of inv_reg
+* implement vertically increasing density to both ice and sediment (like harmonica.tesseroid_gravity)
+
+## Questions:
+* should we use raw gravity observation points, or interpolated grid?
+
 ## Gravity Inversion Software 
 
 ### Geosoft Oasis Montaj 
@@ -36,8 +64,6 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 ### Growth 3.0 Fortran Code
 * 3D
 * accepts seeds
-* 
-     
 
  
 
