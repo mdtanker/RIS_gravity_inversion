@@ -1,0 +1,8 @@
+LICENSE
+README.md
+pyproject.toml
+setup.cfg
+RIS_gravity_inversion/RIS_gravity_inversion.egg-info/PKG-INFO
+RIS_gravity_inversion/RIS_gravity_inversion.egg-info/SOURCES.txt
+RIS_gravity_inversion/RIS_gravity_inversion.egg-info/dependency_links.txt
+RIS_gravity_inversion/RIS_gravity_inversion.egg-info/top_level.txt
