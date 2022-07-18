@@ -6,8 +6,6 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 ### Issues
 * fix constraints on GL plotting
 ### Short-term
-* switch from using a gravity grid to using a gravity dataframe and hm.EquivalentSources.grid to interpolate on regular grid.
-* save iterations to dataframe or dataset and move plotting outside of inversion function
 * add spacing parameter to grdfilters
 * use rosetta ice thickness
 * do forward model with rosetta density
