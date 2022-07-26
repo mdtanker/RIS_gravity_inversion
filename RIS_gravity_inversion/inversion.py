@@ -1183,7 +1183,6 @@ def geo_inversion(
         iter_corrections[f'iter_{ITER}_final_top'] = prisms.top.copy()
 
         # apply the z correction to the active prism layer and the above layer with Harmonica 
-        # not sure why this doesn't work with .to_xarray(), only with xyz2grid
         prisms_grid = pygmt.xyz2grd(prisms[['easting','northing','top']], 
                 region=buffer_region, registration='p', spacing=spacing)
         prisms_above_grid = pygmt.xyz2grd(prisms_above[['easting','northing','bottom']], 
