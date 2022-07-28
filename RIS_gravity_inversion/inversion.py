@@ -77,14 +77,53 @@ def import_layers(
     -------
     tuple
         layers (dict), 
-        df_grav (pd.DataFrame), 
+        grav (pd.DataFrame), 
         constraints_df (pd.DataFrame), 
         constraints_RIS_df (pd.DataFrame)
     """
-    # read and resample gravity grid
-    df_grav=pd.read_csv(grav_file, index_col=False)
-    df_grav = df_grav[vd.inside((df_grav.x, df_grav.y), inversion_region)]
-    df_grav['Gobs'] -= df_grav.Gobs.mean()
+    if grav_file[-3:] == '.nc':
+        # read and resample gravity grid
+        filt_grav = pygmt.grdfilter(
+                            grid=grav_file,
+                            filter=f'g{grav_spacing}', 
+                            distance='0',
+                            # nans='r', # retains NaNs
+                            registration='p',
+                            verbose='q')                 
+        grav = pygmt.grdsample(
+                            grid=filt_grav,
+                            region=inversion_region, 
+                            registration='p', 
+                            spacing=grav_spacing,
+                            verbose='q').to_dataset(name='Gobs')
+        # center on 0
+        grav['Gobs'] -= grav.Gobs.mean().item()
+        """
+        below line makes it so grav is calculated in entire grid domain
+        if dont want that, set to:
+        grav['z'] = (grav.Gobs*0) + 1e3    
+        """
+        grav['z'] = xr.ones_like(grav.Gobs) + 1e3 
+        grav.to_netcdf('tmp_grav.nc')
+
+    if grav_file[-3:] == 'csv':
+        # read file
+        df=pd.read_csv(grav_file, index_col=False)
+        # block reduce
+        grav = pygmt.blockmedian(df[['x','y','Gobs']], spacing=grav_spacing, 
+                region=inversion_region, registration='p')
+        grav['z'] = pygmt.blockmedian(df[['x','y','z']], spacing=grav_spacing, 
+                region=inversion_region, registration='p').z
+        
+        # with Verde
+        # reducer_mean = vd.BlockReduce(reduction=np.mean, spacing=grav_spacing/2, 
+        #     center_coordinates=False)
+        # coordinates, data = reducer_mean.filter(
+        #     coordinates=(df.x, df.y), data=(df.Gobs, df.z))
+        # blocked = pd.DataFrame(data={'x': coordinates[0], 'y':coordinates[1], 
+        #     'Gobs':data[0], 'z':data[1]})
+        # grav = blocked[vd.inside((blocked.x, blocked.y), inversion_region)].copy()
+        grav['Gobs'] -= grav.Gobs.mean()
 
     # make nested dictionary for layers and properties
     layers = {j:{'spacing':spacing_list[i], 
@@ -153,11 +192,14 @@ def import_layers(
     for k, v in layers.items():
         print(f"{k}: {v['len']} points, elevations:"
               f"{int(np.nanmax(v['grid']))}m to {int(np.nanmin(v['grid']))}m") 
-    print(f'gravity: {len(df_grav)} points')   
-    try:
-        print(f'gravity avg. elevation: {int(df_grav.z.max())}')   
-    except:
-        pass
+    
+    if grav_file[-3:] == 'csv':
+        print(f'gravity: {len(grav)} points')  
+        print(f'gravity avg. elevation: {int(grav.z.max())}')
+    elif grav_file[-3:] == '.nc':
+        print(f'gravity: {len(vd.grid_to_table(grav.Gobs))} points')
+        print(f'gravity avg. elevation: {int(np.nanmax(grav.z))}')    
+
     if constraints==True:
         print(f'bathymetry control points:{len(constraints_df)}') 
 
@@ -190,11 +232,13 @@ def import_layers(
                 extra=1
             fig, ax = plt.subplots(ncols=len(layers)+extra, nrows=1, figsize=(20,20))
             p=0
-            grid = pygmt.xyz2grd(data=df_grav[['x','y','Gobs']], 
-                region=inversion_region, 
-                spacing=grav_spacing,  
-                registration='p')
-            # grid = df_grav.set_index(['y','x']).to_xarray().Gobs
+            if grav_file[-3:] == 'csv':
+                grid = pygmt.xyz2grd(data=grav, 
+                        region=inversion_region, 
+                        spacing=grav_spacing,  
+                        registration='p')
+            elif grav_file[-3:] == '.nc':
+                grid = grav.Gobs
             grid.plot(ax=ax[p], robust=True, cmap='RdBu_r', 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax[p].set_title('Observed gravity')
@@ -234,9 +278,9 @@ def import_layers(
                 a.set_aspect('equal')
                 
     if constraints is True:
-        return (layers, df_grav, constraints_grid, constraints_df, constraints_RIS_df) 
+        return (layers, grav, constraints_grid, constraints_df, constraints_RIS_df) 
     else: 
-        return (layers, df_grav, None, None)
+        return (layers, grav, None, None)
 
 def grids_to_prism_layers(
     layers: dict, 
@@ -401,7 +445,7 @@ def grids_to_prism_layers(
 
 def forward_grav_layers(
     layers: dict, 
-    gravity: pd.DataFrame,  
+    gravity: pd.DataFrame or xr.Dataset,  
     plot: bool = True, 
     **kwargs
     ):
@@ -417,8 +461,8 @@ def forward_grav_layers(
             'rho': int, float; constant density value for layer
             'grid': xarray.DataArray;  
             'df': pandas.DataFrame; 2d representation of grid
-    gravity : pd.DataFrame
-        input gravity data
+    gravity : pd.DataFrame or xr.DataSet, 
+        locations to calculate forward gravity at. needs variables 'x', 'y', 'Gobs', and 'z'.
     plot : bool, optional
         Choose whether to plot, by default True
 
@@ -450,18 +494,19 @@ def forward_grav_layers(
             f"If plot = {plot}, grav_spacing must be set."
             )
 
-    # if gravity given as xr.DataArray, convert to pd.DataFrame
+    # if inversion region not given, get from input grav data
     if isinstance(gravity, pd.DataFrame):
+        print('using supplied DataFrame for observation points')
+        inversion_region = kwargs.get('inversion_region', 
+            vd.get_region((gravity.x, gravity.y)))
         df_forward = gravity.copy()
-    elif isinstance(gravity, xr.DataArray):
-        print("converting 'gravity' from xr.DataArray to pd.DataFrame")
-        df_forward = vd.grid_to_table(gravity)
+    elif isinstance(gravity, xr.Dataset):
+        print("converting 'gravity' from xr.Dataset to pd.DataFrame")
+        inversion_region = kwargs.get('inversion_region', [int(pygmt.grdinfo('tmp_grav.nc', 
+            per_column="n", o=i)[:-1]) for i in range(4)])
+        df_forward = vd.grid_to_table(gravity)#.dropna(subset='Gobs')
     else:
-        print("paramter 'gravity' should be pd.DataFrame or xr.DataArray")
-
-    # either set input inversion region or get from input gravity data extent
-    inversion_region = kwargs.get('inversion_region', 
-        vd.get_region((df_forward.x, df_forward.y)))
+        raise TypeError("parameter 'gravity' should be pd.DataFrame or xr.Dataset")
 
     # remove excluded layers
     include_forward_layers = pd.Series([k for k, v in layers.items() if k not in 
@@ -658,6 +703,7 @@ def anomalies(
     # get obs-forward misfit
     anomalies['misfit'] =  anomalies.grav_corrected - anomalies[input_forward_column]
     
+    print('filling grid')
     # fill misfit nans with 1 of 2 methods
     if fill_method == 'pygmt':
         """option 1) with pygmt.grdfill(), needs grav_spacing and inversion_region"""
@@ -670,6 +716,7 @@ def anomalies(
         """option 1) with rio.interpolate(), needs crs set."""
         misfit = anomalies.set_index(['y','x']).to_xarray().misfit.rio.write_crs(crs)
         misfit_filled = misfit.rio.write_nodata(np.nan).rio.interpolate_na()
+    print('filled grid')
 
     if regional_method=='trend':
         df = vd.grid_to_table(misfit_filled).astype('float64')
@@ -692,7 +739,8 @@ def anomalies(
         constraints['misfit']=constraints.merge(tmp_regrid, how = 'left', 
                 on = ['x','y']).misfit_sampled
         blocked = pygmt.blockmedian(data=constraints[['x','y','misfit']], 
-                                    spacing="1000", region=inversion_region)
+                                    spacing="1000", region=inversion_region,
+                                    registration='p')
         regional_misfit = pygmt.surface(data=blocked, region=inversion_region,
             spacing=grav_spacing, registration='p', verbose='q')
         tmp_regrid = pygmt.grdtrack(points = anomalies[['x','y']], 
@@ -1093,38 +1141,46 @@ def plot_inversion_results(
         
     elif plot_type=='xarray':
         nrow = max(iterations)+1
-        ncol = 5
+        ncol = 3
         height = 5
         width = height * (input_grav.x.unique().size/input_grav.y.unique().size)
 
         for ITER in iterations:
-            if ITER==1:
-                pass
-            else:
-                input_grav['res'] = input_grav[f"iter_{ITER-1}_final_misfit"]
-            initial_RMS = round(np.sqrt((input_grav.res**2).mean(skipna=True)),2)
-            final_RMS = round(np.sqrt((input_grav[f"iter_{ITER}_final_misfit"] **2).mean(skipna=True).item()),2)
+            initial_RMS = round(np.sqrt((input_grav[f"iter_{ITER}_initial_misfit"] \
+                **2).mean(skipna=True)),2)
+            final_RMS = round(np.sqrt((input_grav[f"iter_{ITER}_final_misfit"] \
+                **2).mean(skipna=True).item()),2)
+            correction = round(np.sqrt((iter_corrections[f"iter_{ITER}_correction"] \
+                **2).mean(skipna=True).item()),2)
+            
             grid1 = pygmt.xyz2grd(data=input_grav[['x','y',f'iter_{ITER}_initial_misfit']], 
                         region=plot_region, 
                         spacing=grav_spacing,  
                         registration='p', verbose='q')
-            grid2 = layers[active_layer]['inv_grid'].rio.set_spatial_dims(
-                                'x','y').rio.write_crs(epsg).rio.clip_box(
-                                    minx=plot_region[0], maxx=plot_region[1], 
-                                    miny=plot_region[2], maxy=plot_region[3])
-            grid3 = iter_corrections.set_index(['x','y']).to_xarray()[f"iter_{ITER}_correction"].rio.set_spatial_dims(
-                                'x','y').rio.write_crs(epsg).rio.clip_box(
-                                    minx=plot_region[0], maxx=plot_region[1], 
-                                    miny=plot_region[2], maxy=plot_region[3])
-            active_layer_total_difference = layers[active_layer]['inv_grid'] - layers[active_layer]['grid']
-            grid4 = active_layer_total_difference.rio.set_spatial_dims(
-                                'x', 'y').rio.write_crs(epsg).rio.clip_box(
-                                    minx=plot_region[0], maxx=plot_region[1], 
-                                    miny=plot_region[2], maxy=plot_region[3])
-            grid5 = pygmt.xyz2grd(data=input_grav[['x','y',f'iter_{ITER}_final_misfit']], 
-                        region=inversion_region, 
+
+            grid2 = pygmt.xyz2grd(iter_corrections[['x','y', f'iter_{ITER}_final_top']], 
+                        region=plot_region, 
                         spacing=grav_spacing,  
                         registration='p', verbose='q')
+
+            grid3 = -iter_corrections.set_index(['x','y']).to_xarray()\
+                    [f"iter_{ITER}_correction"].rio.set_spatial_dims(
+                                'x','y').rio.write_crs(epsg).rio.clip_box(
+                                    minx=plot_region[0], maxx=plot_region[1], 
+                                    miny=plot_region[2], maxy=plot_region[3])
+
+            # active_layer_total_difference = layers[active_layer]['inv_grid'] - \
+            #       layers[active_layer]['grid']
+            # grid4 = active_layer_total_difference.rio.set_spatial_dims(
+            #                     'x', 'y').rio.write_crs(epsg).rio.clip_box(
+            #                         minx=plot_region[0], maxx=plot_region[1], 
+            #                         miny=plot_region[2], maxy=plot_region[3])
+            # grid5 = pygmt.xyz2grd(
+            #             data=input_grav[['x','y',f'iter_{ITER}_final_misfit']], 
+            #             region=inversion_region, 
+            #             spacing=grav_spacing,  
+            #             registration='p', verbose='q')
+
             final_topo = grid2
             initial_topo = layers[active_layer]['grid'].rio.set_spatial_dims(
                                 'x','y').rio.write_crs(epsg).rio.clip_box(
@@ -1140,13 +1196,16 @@ def plot_inversion_results(
                                 vd.maxabs(grid1)*.85)
                 corr_lims = (-max_layer_change_per_iter, 
                                 max_layer_change_per_iter)
-                diff_lims = (-vd.maxabs(grid4)*1.5, 
-                                vd.maxabs(grid4)*1.5)
+
+                # diff_lims = (-vd.maxabs(grid4)*1.5, 
+                #                 vd.maxabs(grid4)*1.5)
                 # set active layer cmap to within ice shelf extent
+
                 masked = utils.mask_from_shp("plotting/MEaSUREs_RIS.shp", xr_grid=grid2, masked=True, invert=False,)
                 percent = 2
                 topo_lims = (np.nanquantile(masked, q=percent/100),
                     np.nanquantile(masked, q=1-(percent/100)))
+
                 # topo_lims = (-vd.maxabs(grid2), 
                 #                 vd.maxabs(grid2))
 
@@ -1165,7 +1224,9 @@ def plot_inversion_results(
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax.set_xticklabels([])
             ax.set_yticklabels([])
-            ax.set_title(f'initial misfit: {initial_RMS}mGal')
+            ax.set_title(f'initial misfit: RMS={initial_RMS}mGal')
+            if plot_constraints is True:
+                ax.plot(constraints.x, constraints.y, 'k+')
             p+=1
 
             ax = plt.subplot(gs[ITER-1,p])
@@ -1185,29 +1246,31 @@ def plot_inversion_results(
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax.set_xticklabels([])
             ax.set_yticklabels([])
-            ax.set_title('iteration correction')
-            p+=1
-
-            ax = plt.subplot(gs[ITER-1,p])
-            grid4.plot(ax=ax, x='x', y='y', vmin=diff_lims[0], vmax=diff_lims[1],
-                cmap='RdBu_r', add_labels=False,
-                cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            ax.set_title(f'total {active_layer} difference')
+            ax.set_title(f'iteration correction: RMS={correction}m')
             if plot_constraints is True:
-                ax.plot(constraints.x, constraints.y, 'k+')
-            p+=1
+                ax.plot(constraints.x, constraints.y, 'k+')  
+            # p+=1
 
-            ax = plt.subplot(gs[ITER-1,p])
-            grid5.plot(ax=ax, x='x', y='y', vmin=misfit_lims[0], vmax=misfit_lims[1],
-                cmap='RdBu_r', add_labels=False,
-                cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            ax.set_title(f'final gravity misfit: {final_RMS}mGal')
+            # ax = plt.subplot(gs[ITER-1,p])
+            # grid4.plot(ax=ax, x='x', y='y', vmin=diff_lims[0], vmax=diff_lims[1],
+            #     cmap='RdBu_r', add_labels=False,
+            #     cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
+            # ax.set_xticklabels([])
+            # ax.set_yticklabels([])
+            # ax.set_title(f'total {active_layer} difference')
+            # if plot_constraints is True:
+            #     ax.plot(constraints.x, constraints.y, 'k+')
+            # p+=1
 
-            ax = plt.subplot(gs[ITER, 1])
+            # ax = plt.subplot(gs[ITER-1,p])
+            # grid5.plot(ax=ax, x='x', y='y', vmin=misfit_lims[0], vmax=misfit_lims[1],
+            #     cmap='RdBu_r', add_labels=False,
+            #     cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
+            # ax.set_xticklabels([])
+            # ax.set_yticklabels([])
+            # ax.set_title(f'final gravity misfit: {final_RMS}mGal')
+
+            ax = plt.subplot(gs[ITER, 0])
             initial_topo.plot(ax=ax, x='x', y='y', vmin=topo_lims[0], vmax=topo_lims[1],
                 cmap='gist_earth', add_labels=False, 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
@@ -1215,7 +1278,7 @@ def plot_inversion_results(
             ax.set_yticklabels([])                
             ax.set_title(f'Initial {active_layer} topography')
 
-            ax = plt.subplot(gs[ITER, 2])
+            ax = plt.subplot(gs[ITER, 1])
             final_topo.plot(ax=ax, x='x', y='y', vmin=topo_lims[0], vmax=topo_lims[1],
                 cmap='gist_earth', add_labels=False, 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
@@ -1223,13 +1286,15 @@ def plot_inversion_results(
             ax.set_yticklabels([])                
             ax.set_title(f'Final {active_layer} topography')
 
-            ax = plt.subplot(gs[ITER, 3])
+            ax = plt.subplot(gs[ITER, 2])
             (initial_topo-final_topo).plot(ax=ax, x='x', y='y', robust=True,
                 cmap='RdBu_r', add_labels=False, 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax.set_xticklabels([])
             ax.set_yticklabels([])                
             ax.set_title('Difference')
+            if plot_constraints is True:
+                ax.plot(constraints.x, constraints.y, 'k+')
 
     if plot_type=='pygmt':
             fig.show(width=1200)
@@ -1383,10 +1448,9 @@ def geo_inversion(
                 Surface_correction[i]=max_layer_change_per_iter
             elif Surface_correction[i] < -max_layer_change_per_iter:
                 Surface_correction[i]=-max_layer_change_per_iter
-        print('finished least squares')
         prisms['correction']=Surface_correction
         prisms_above['correction']=Surface_correction
-        print(f"average layers correction {round(np.sqrt((Surface_correction**2).mean()),2)}m")
+        print(f"RMS layer correction {round(np.sqrt((Surface_correction**2).mean()),2)}m")
         # apply above surface corrections 
         if apply_constraints is True:
             prisms['constraints'] = constraints_grid.to_dataframe().reset_index().z
@@ -1398,11 +1462,10 @@ def geo_inversion(
 
         if ITER==1:
             iter_corrections = prisms.rename(columns={'easting':'x', 'northing':'y'}).copy()
-        iter_corrections[f'iter_{ITER}_inital_top'] = prisms.top.copy()
+        iter_corrections[f'iter_{ITER}_initial_top'] = prisms.top.copy()
 
         prisms.top += prisms.correction
         prisms_above.bottom += prisms_above.correction
-
         iter_corrections[f'iter_{ITER}_final_top'] = prisms.top.copy()
 
         # apply the z correction to the active prism layer and the above layer with Harmonica 
@@ -1422,13 +1485,13 @@ def geo_inversion(
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
  
         print('calculating updated forward gravity')
-        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers[active_layer]['prisms'].prism_layer.gravity(
-            coordinates=(gravity.x, gravity.y, gravity.z),
-            field = 'g_z')
+        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = \
+            layers[active_layer]['prisms'].prism_layer.gravity(
+                coordinates=(gravity.x, gravity.y, gravity.z), field = 'g_z')
         
-        gravity[f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"] = layers[include_forward_layers[ind-1]]['prisms'].prism_layer.gravity(
-            coordinates=(gravity.x, gravity.y, gravity.z),
-            field = 'g_z')
+        gravity[f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"] = \
+            layers[include_forward_layers[ind-1]]['prisms'].prism_layer.gravity(
+                coordinates=(gravity.x, gravity.y, gravity.z), field = 'g_z')
  
         # add updated layers' column names to list
         updated_layers = [active_layer, include_forward_layers[ind-1]]
@@ -1456,15 +1519,17 @@ def geo_inversion(
             inversion_region=inversion_region,
             ).res
 
-        final_RMS = round(np.sqrt((gravity[f"iter_{ITER}_final_misfit"] **2).mean(skipna=True).item()),2)
+        final_RMS = round(np.sqrt((
+            gravity[f"iter_{ITER}_final_misfit"] **2).mean(skipna=True).item()),2)
         print(f"final RMS residual = {final_RMS}mGal")
         # for first iteration, divide infinity by mean square of gravity residuals, inversion will stop once this gets to delta_misfit_squared_tolerance (0.02)
         misfit_sq=(gravity[f"iter_{ITER}_final_misfit"]**2).mean(skipna=True).item()
         delta_misfit_squared=misfit_squared_updated/misfit_sq
         misfit_squared_updated=misfit_sq # updated 
 
-        layers[active_layer]['inv_grid']=prisms.rename(columns={'easting':'x', 'northing':'y'}).set_index(
-                ['y','x']).to_xarray().top
+        layers[active_layer]['inv_grid']=prisms.rename(
+            columns={'easting':'x', 'northing':'y'}
+            ).set_index(['y','x']).to_xarray().top
      
         active_layer_total_difference = layers[active_layer]['inv_grid'] - layers[active_layer]['grid']
 
