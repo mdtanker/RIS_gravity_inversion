@@ -4,6 +4,7 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 ## To Do
 
 ### Issues
+* test with layers with NaN's (instead of ice and water elev = 0 for no ice, make nans)
 * fix constraints on GL plotting
 ### Short-term
 * add spacing parameter to grdfilters
@@ -29,7 +30,7 @@ Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborn
 ## Questions:
 * should we use raw gravity observation points, or interpolated grid?
 
-## Gravity Inversion Software 
+## Other Gravity Inversion Software 
 
 ### Geosoft Oasis Montaj 
 * 3D 

@@ -6,6 +6,8 @@ inversion_layers/constraints_xy.txt
 
 /figures/
 
+/tmp_outputs/
+
 # Compiled python modules.
 *.pyc
 
