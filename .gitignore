@@ -6,7 +6,8 @@ inversion_layers/constraints_xy.txt
 
 /figures/
 
-/tmp_outputs/
+tmp_outputs/*
+!tmp_outputs/.gitkeep 
 
 # Compiled python modules.
 *.pyc

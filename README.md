@@ -1,6 +1,19 @@
 # RIS_gravity_inversion
 Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inverison to model the sub ice shelf bathymetry. 
 
+## Install
+
+Install the required dependencies with either `conda` or `mamba` with the environment.yml file:
+
+    mamba env create -f environment.yml
+
+If you get an error from pyproj while using the package try:
+
+    conda remove --force pyproj
+    pip install pyproj
+
+Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
+
 ## To Do
 
 ### Issues

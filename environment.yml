@@ -21,4 +21,5 @@ dependencies:
   - ipykernel
   - ca-certificates
   - openssl
+  - seaborn
 prefix: /home/tankerma/miniconda/envs/RIS_gravity_inversion
