@@ -17,6 +17,7 @@ import rioxarray
 import warnings
 import RIS_gravity_inversion.utils as utils
 from typing import Union
+import seaborn as sns
 
 warnings.filterwarnings('ignore', message="pandas.Int64Index")
 warnings.filterwarnings('ignore', message="pandas.Float64Index")
@@ -103,7 +104,8 @@ def import_layers(
             .csv file with position of constraints
         plot_type: str
             choose method of plotting; either "xarray" or "pygmt", by default is "xarray"
-    
+        power_spectrum: bool
+            choose to plot radially average power spectrum of layers, by defaul is False
     Returns
     -------
     tuple
@@ -150,7 +152,6 @@ def import_layers(
                 region=inversion_region, registration='p')
         grav['z'] = pygmt.blockmedian(df[['x','y','z']], spacing=grav_spacing, 
                 region=inversion_region, registration='p').z
-        
         # with Verde
         # reducer_mean = vd.BlockReduce(reduction=np.mean, spacing=grav_spacing/2, 
         #     center_coordinates=False)
@@ -269,13 +270,13 @@ def import_layers(
             fig, ax = plt.subplots(ncols=len(layers)+extra, nrows=1, figsize=(20,20))
             p=0
             if grav_file[-3:] == 'csv':
-                grid = pygmt.xyz2grd(data=grav, 
+                grav_grid = pygmt.xyz2grd(data=grav, 
                         region=inversion_region, 
                         spacing=grav_spacing,  
                         registration='p')
             elif grav_file[-3:] == '.nc':
-                grid = grav.Gobs
-            grid.plot(ax=ax[p], robust=True, cmap='RdBu_r', 
+                grav_grid = grav.Gobs
+            grav_grid.plot(ax=ax[p], robust=True, cmap='RdBu_r', 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax[p].set_title('Observed gravity')
             p+=1
@@ -317,17 +318,26 @@ def import_layers(
                 a.set_xlabel('')
                 a.set_ylabel('')
                 a.set_aspect('equal')
-                
+    if kwargs.get('power_spectrum', False) is True:
+        names = []
+        grids = []
+        for k, v in layers.items():
+            names.append(k)
+            grids.append(v['grid'])
+        names.append('observed_gravity')
+        grids.append(grav_grid)
+        utils.raps(grids, names)
+
     if constraints is True:
-        return (layers, grav.astype(np.float64), constraints_grid, constraints_df, constraints_RIS_df) 
+        return (layers, grav.astype(np.float64), grav_spacing, constraints_grid, constraints_df, constraints_RIS_df) 
     else: 
-        return (layers, grav.astype(np.float64), None, None)
+        return (layers, grav.astype(np.float64), grav_spacing, None, None)
 
 def grids_to_prism_layers(
     layers: dict, 
     buffer_region: Union[str, np.ndarray] = None,
     plot_region: Union[str, np.ndarray] = None, 
-    plot:bool = False, 
+    plot: bool = False, 
     **kwargs
     ):
     """
@@ -496,6 +506,7 @@ def forward_grav_layers(
     layers: dict, 
     gravity: pd.DataFrame or xr.Dataset,  
     plot: bool = True, 
+    plot_dists: bool = False,
     **kwargs
     ):
     """
@@ -511,10 +522,11 @@ def forward_grav_layers(
             'grid': xarray.DataArray;  
             'df': pandas.DataFrame; 2d representation of grid
     gravity : pd.DataFrame or xr.DataSet, 
-        locations to calculate forward gravity at. needs variables 'x', 'y', 'Gobs', and 'z'.
+        locations to calculate forward gravity at. needs variables 'x', 'y', and 'z'.
     plot : bool, optional
-        Choose whether to plot, by default True
-
+        Choose whether to plot, by default True.
+    plot_dists : bool, optional
+        Choose whether to plot the resulting distributions, by default False.
     Keyword Args
     ------------
     grav_spacing : int
@@ -527,6 +539,8 @@ def forward_grav_layers(
     plot_type: str
         Choose to use 'xarray' or 'pygmt' to plot the results, by default is 
         'xarray'
+    power_spectrum: bool
+            choose to plot radially average power spectrum of layers, by defaul is False
 
     Returns
     -------
@@ -614,6 +628,57 @@ def forward_grav_layers(
                 a.set_xlabel('')
                 a.set_ylabel('')
                 a.set_aspect('equal')
+    
+    if plot_dists==True:
+        # get column to include in plots
+        df=df_forward[['forward_total']+grav_layers_list]
+        # df = df_forward.drop(['x','y','z','Gobs'], axis=1)
+        # reorganize
+        data = df.melt(var_name='layer')
+        # layout the subplot grid
+        g = sns.FacetGrid(data, col="layer", sharex=False, sharey=False)#, col_wrap=5)
+
+        # add histogram for each column
+        # g.map(sns.histplot, 'value', binwidth=1, kde=True,)
+        g.map(sns.kdeplot, 'value', fill=True, bw_adjust=.4)
+
+        # groupby to get mean and median
+        data_g = data.groupby('layer').agg(['mean', 'median'])
+
+        # extract and flatten the axes from the figure
+        axes = g.axes.flatten()
+
+        # iterate through each axes
+        for ax in axes:
+            # extract the species name
+            grav_type = ax.get_title().split(' = ')[1]
+            
+            # select the data for the species
+            d = data_g.loc[grav_type, :]
+
+            # plot the lines
+            ax.axvline(x=d.value['mean'], c='k', ls='-', lw=1.5, label='mean')
+            ax.axvline(x=d.value['median'], c='grey', ls='--', lw=1.5, label='median')
+            ax.legend(fontsize=8)
+
+        # seperate plot of layers include in forward total
+        df = df_forward[['forward_total']+grav_layers_list]
+        plt.figure()
+        sns.histplot(data=df, 
+            palette='viridis',
+            kde=True,
+            # stat='count',
+            multiple='stack', 
+            element='step'
+        )
+
+    if kwargs.get('power_spectrum', False) is True:
+        utils.raps(
+            df_forward, 
+            ['forward_total']+grav_layers_list,
+            region=inversion_region, 
+            spacing=grav_spacing,)
+
     return df_forward
 
 def anomalies(
@@ -622,6 +687,7 @@ def anomalies(
     grav_spacing: int,
     regional_method: str,
     plot: bool = True, 
+    plot_dists: bool = False,
     **kwargs
     ): 
     """
@@ -648,7 +714,9 @@ def anomalies(
     regional_method : {'trend', 'filter', 'constraints'}
         choose a method to determine the regional gravity misfit.
     plot : bool, optional
-        Choose whether to plot the resulting anomalies, by default True
+        Choose whether to plot the resulting anomalies, by default True.
+    plot_dists : bool, optional
+        Choose whether to plot the distributions of the anomalies, by default False.
 
     Other Parameters
     ----------------
@@ -684,6 +752,8 @@ def anomalies(
         crs: str,
             if fill_method = 'rioxarray', set the coordinate reference system to be used
             in rioxarray.
+        power_spectrum: bool
+            choose to plot radially average power spectrum of layers, by defaul is False
     Returns
     -------
     pd.DataFrame
@@ -886,7 +956,57 @@ def anomalies(
                 a.set_xlabel('')
                 a.set_ylabel('')
                 a.set_aspect('equal')                
-    return anomalies#.dropna(subset='res')
+    
+    if plot_dists==True:
+        # get column to include in plots
+        df=anomalies[['grav_corrected', 'forward_total', 'misfit', 'reg', 'res']]
+        # reorganize
+        data = df.melt(var_name='gravity type')
+        # layout the subplot grid
+        g = sns.FacetGrid(data, col="gravity type")#, sharex=False, sharey=False)#, col_wrap=5)
+
+        # add histogram for each column
+        # g.map(sns.histplot, 'value', binwidth=1, kde=True,)
+        g.map(sns.kdeplot, 'value', fill=True, bw_adjust=.4)
+
+        # groupby to get mean and median
+        data_g = data.groupby('gravity type').agg(['mean', 'median'])
+
+        # extract and flatten the axes from the figure
+        axes = g.axes.flatten()
+
+        # iterate through each axes
+        for ax in axes:
+            # extract the species name
+            grav_type = ax.get_title().split(' = ')[1]
+            
+            # select the data for the species
+            d = data_g.loc[grav_type, :]
+
+            # plot the lines
+            ax.axvline(x=d.value['mean'], c='k', ls='-', lw=1.5, label='mean')
+            ax.axvline(x=d.value['median'], c='grey', ls='--', lw=1.5, label='median')
+            ax.legend(fontsize=8)
+
+        # seperate plot of misfit components
+        df = anomalies[['grav_corrected', 'forward_total', 'misfit',]]
+        plt.figure()
+        sns.histplot(data=df, 
+            palette='viridis',
+            kde=True,
+            # stat='count',
+            multiple='stack', 
+            element='step'
+        )
+
+    if kwargs.get('power_spectrum', False) is True:
+        utils.raps(
+            anomalies, 
+            ['misfit', 'reg', 'res'],
+            region=inversion_region, 
+            spacing=grav_spacing,)   
+
+    return anomalies
 
 def density_inversion(density_layer, max_density_change=2000,  input_grav=None, 
     plot=True):
@@ -1276,8 +1396,6 @@ def plot_inversion_results(
                 topo_lims = (np.nanquantile(masked, q=percent/100),
                     np.nanquantile(masked, q=1-(percent/100)))
 
-                # topo_lims = (-vd.maxabs(grid2), 
-                #                 vd.maxabs(grid2))
             p=0
 
             ax = plt.subplot(gs[ITER-1,p])
@@ -1299,7 +1417,7 @@ def plot_inversion_results(
             p+=1
 
             ax = plt.subplot(gs[ITER-1,p])
-            grid2.plot(ax=ax, x='x', y='y', vmin=topo_lims[0], vmax=topo_lims[1],
+            grid2.plot(ax=ax, x='x', y='y', robust=True,#vmin=topo_lims[0], vmax=topo_lims[1],
                 cmap='gist_earth', add_labels=False, 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax.set_xticklabels([])
@@ -1321,7 +1439,7 @@ def plot_inversion_results(
             final_topo = grid2.copy()
 
         ax = plt.subplot(gs[nrow-3, 0])
-        initial_topo.plot(ax=ax, x='x', y='y', vmin=topo_lims[0], vmax=topo_lims[1],
+        initial_topo.plot(ax=ax, x='x', y='y', robust=True,#vmin=topo_lims[0], vmax=topo_lims[1],
             cmap='gist_earth', add_labels=False, 
             cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
         ax.set_xticklabels([])
@@ -1329,7 +1447,7 @@ def plot_inversion_results(
         ax.set_title(f'Initial {active_layer} topography')
 
         ax = plt.subplot(gs[nrow-3, 1])
-        final_topo.plot(ax=ax, x='x', y='y', vmin=topo_lims[0], vmax=topo_lims[1],
+        final_topo.plot(ax=ax, x='x', y='y', robust=True,#vmin=topo_lims[0], vmax=topo_lims[1],
             cmap='gist_earth', add_labels=False, 
             cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
         ax.set_xticklabels([])
