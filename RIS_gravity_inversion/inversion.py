@@ -22,36 +22,6 @@ import seaborn as sns
 warnings.filterwarnings('ignore', message="pandas.Int64Index")
 warnings.filterwarnings('ignore', message="pandas.Float64Index")
 
-def setup_region(
-            starting_region: np.ndarray = [-580000, 420000, -1420000, -420000],
-            zoom: float = 0,
-            n_shift: float = 0,
-            w_shift: float = 0,
-            buffer: float = 200e3,):
- 
-    e_inv = starting_region[0] +zoom + w_shift
-    w_inv = starting_region[1] -zoom + w_shift
-    n_inv = starting_region[2] +zoom - n_shift
-    s_inv = starting_region[3] -zoom - n_shift
-    inversion_region = [e_inv, w_inv, n_inv, s_inv]
-
-    e_buff, w_buff, n_buff, s_buff = int(e_inv-buffer), int(w_inv+buffer), int(n_inv-buffer), int(s_inv+buffer)
-
-    buffer_region = [e_buff, w_buff, n_buff, s_buff]
-
-    # buffer_reg_str=f'{e_buff}/{w_buff}/{n_buff}/{s_buff}'
-    # fig_height = 80
-    # fig_width = fig_height*(w_inv-e_inv)/(s_inv-n_inv)
-    # inv_ratio = (s_inv-n_inv)/(fig_height/1000)
-    # buffer_ratio = (s_buff-n_buff)/(fig_height/1000)
-    # inv_proj = f"x1:{inv_ratio}"
-    # buffer_proj = f"x1:{buffer_ratio}"
-    # inv_proj_ll = f"s0/-90/-71/1:{inv_ratio}"
-    # buffer_proj_ll = f"s0/-90/-71/1:{buffer_ratio}"
-
-    print(f"inversion region is {int((w_inv-e_inv)/1e3)} x {int((s_inv-n_inv)/1e3)} km")
-    return inversion_region, buffer_region
-
 def import_layers(
             layers_list, 
             spacing_list, 

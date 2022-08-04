@@ -12,6 +12,10 @@ If you get an error from pyproj while using the package try:
     conda remove --force pyproj
     pip install pyproj
 
+Add local antarctic_plots repo in editable mode:
+
+    pip install antarctic_plots --no-binary :all:
+
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 ## To Do

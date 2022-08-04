@@ -51,92 +51,37 @@ def mask_from_shp(
         output = mask_grd
     return output
 
-def plot_grd(
-        grid, 
-        cmap : str, 
-        cbar_label : str, 
-        plot_region=None, 
-        cmap_region=None, 
-        coast=False,
-        constraints=False,
-        grd2cpt_name=False, 
-        origin_shift='initialize',
-        ):
-    """
-    Function to automate PyGMT plotting
-    """
-    warnings.filterwarnings('ignore', message="pandas.Int64Index")
-    warnings.filterwarnings('ignore', message="pandas.Float64Index")
+def setup_region(
+    starting_region: np.ndarray = [-580000, 420000, -1420000, -420000],
+    zoom: float = 0,
+    n_shift: float = 0,
+    w_shift: float = 0,
+    buffer: float = 200e3,):
+ 
+    e_inv = starting_region[0] +zoom + w_shift
+    w_inv = starting_region[1] -zoom + w_shift
+    n_inv = starting_region[2] +zoom - n_shift
+    s_inv = starting_region[3] -zoom - n_shift
+    inversion_region = [e_inv, w_inv, n_inv, s_inv]
+
+    e_buff, w_buff, n_buff, s_buff = int(e_inv-buffer), int(w_inv+buffer), int(n_inv-buffer), int(s_inv+buffer)
+
+    buffer_region = [e_buff, w_buff, n_buff, s_buff]
+
+    # buffer_reg_str=f'{e_buff}/{w_buff}/{n_buff}/{s_buff}'
     
-    global fig, projection
-    if plot_region is None:
-        plot_region = inv_reg
-    if cmap_region is None:
-        cmap_region = inv_reg
-    if plot_region == buffer_reg:
-        projection = buffer_proj
-    elif plot_region == inv_reg:
-        projection = inv_proj
-    # initialize figure or shift for new subplot
-    if origin_shift=='initialize':
-        fig = pygmt.Figure()   
-    elif origin_shift=='xshift':
-        fig.shift_origin(xshift=(fig_width + 2)/10)
-    elif origin_shift=='yshift':
-        fig.shift_origin(yshift=(fig_height + 12)/10)
+    fig_height = 80
+    fig_width = fig_height*(w_inv-e_inv)/(s_inv-n_inv)
+    
+    inv_ratio = (s_inv-n_inv)/(fig_height/1000)
+    buffer_ratio = (s_buff-n_buff)/(fig_height/1000)
+    inv_proj = f"x1:{inv_ratio}"
+    buffer_proj = f"x1:{buffer_ratio}"
+    inv_proj_ll = f"s0/-90/-71/1:{inv_ratio}"
+    buffer_proj_ll = f"s0/-90/-71/1:{buffer_ratio}"
 
-    # set cmap
-    if grd2cpt_name:
-        pygmt.grd2cpt(
-            cmap=cmap, 
-            grid=grid, 
-            region=cmap_region, 
-            background=True, 
-            continuous=True,
-            output=f'plotting/{grd2cpt_name}.cpt')
-        cmap = f'plotting/{grd2cpt_name}.cpt'
-
-    fig.grdimage(
-        grid=grid,
-        cmap=cmap,
-        projection=projection, 
-        region=plot_region,
-        nan_transparent=True,
-        frame=['+gwhite'])
-
-    fig.colorbar(
-        cmap=cmap, 
-        position='jBC+jTC+h', 
-        frame=f'x+l"{cbar_label}"')
-
-    if coast==True:
-        fig.plot(
-                projection = projection, 
-                region = plot_region,
-                data = gpd.read_file('plotting/GroundingLine_Antarctica_v02.shp'), 
-                pen = '1.2p,black', 
-                verbose='q',)
-
-    fig.plot(data = gpd.read_file('plotting/Coastline_Antarctica_v02.shp'), 
-            pen = '1.2p,black',
-            verbose='q',
-            )
-    if constraints==True:
-        fig.plot(
-                x = constraints_RIS_df.x, 
-                y = constraints_RIS_df.y, 
-                style = 'c1.2p',
-                color = 'black',
-                projection = projection,
-                region = plot_region,)
-
-    if plot_region==buffer_reg:
-        fig.plot(
-            x = [inv_reg[0], inv_reg[0], inv_reg[1], inv_reg[1], inv_reg[0]], 
-            y = [inv_reg[2], inv_reg[3], inv_reg[3], inv_reg[2], inv_reg[2]], 
-            pen = '2p,black', 
-            projection = projection,
-            region = plot_region,)
+    print(f"inversion region is {int((w_inv-e_inv)/1e3)} x {int((s_inv-n_inv)/1e3)} km")
+    return inversion_region, buffer_region, inv_proj
 
 def make_grid(
     region: Union[str, np.ndarray],
@@ -216,12 +161,18 @@ def raps(
                 grid = data
             elif isinstance(data, list):
                 data[i].to_netcdf('tmp_outputs/fft.nc')
+                pygmt.grdfill('tmp_outputs/fft.nc', mode='n', 
+                    outgrid='tmp_outputs/fft.nc')
                 grid = 'tmp_outputs/fft.nc'
             elif isinstance(data, xr.Dataset):
                 data[j].to_netcdf('tmp_outputs/fft.nc')
+                pygmt.grdfill('tmp_outputs/fft.nc', mode='n', 
+                    outgrid='tmp_outputs/fft.nc')
                 grid = 'tmp_outputs/fft.nc'
             elif isinstance(data, xr.DataArray):
                 data.to_netcdf('tmp_outputs/fft.nc')
+                pygmt.grdfill('tmp_outputs/fft.nc', mode='n', 
+                    outgrid='tmp_outputs/fft.nc')
                 grid = 'tmp_outputs/fft.nc'
             if filter is not None:
                 with pygmt.clib.Session() as session:
@@ -237,10 +188,14 @@ def raps(
                 session.call_module('grdfft', args)
             if plot_type == 'mpl':
                 raps = pd.read_csv('tmp_outputs/raps.txt', header=None, 
-                    delimiter='\t', names=('Wavelength (km)','Radially Averaged Power','stdev'))
-                ax = sns.lineplot(raps['Wavelength (km)'], raps['Radially Averaged Power'], label=j, 
-                    palette='viridis')
-                ax = sns.scatterplot(x=raps['Wavelength (km)'], y=raps['Radially Averaged Power'])
+                    delimiter='\t', 
+                    names=('wavelength','power','stdev'))
+                ax = sns.lineplot(raps.wavelength, raps.power, 
+                    label=j, palette='viridis')
+                ax = sns.scatterplot(x=raps.wavelength, y=raps.power)
+                ax.set_xlabel('Wavelength (km)')
+                ax.set_ylabel('Radially Averaged Power ($mGal^{2}km$)')
+                
             elif plot_type == 'pygmt':
                 color=f"{random.randrange(255)}/{random.randrange(255)}/{random.randrange(255)}"
                 spec.plot('tmp_outputs/raps.txt', pen=f"1p,{color}")
@@ -331,10 +286,35 @@ def coherency(
     """
     Examples:
     utils.coherency(
-        grids=[df_anomalies[['x','y','Gobs']], 
-            df_anomalies[['x','y','ice_forward_grav']]],
-        region=inv_reg,
+    grids = [
+        iter_corrections[['x','y','iter_1_initial_top']],
+        df_inversion[['x','y','Gobs']]],
         spacing=grav_spacing,
+        region=inv_reg,
+        label='0'
         )
+    utils.coherency(
+        grids = [
+            iter_corrections[['x','y','iter_1_final_top']],
+            df_inversion[['x','y','Gobs']]],
+            spacing=grav_spacing,
+            region=inv_reg,
+            label='1'
+            )
+    utils.coherency(
+        grids = [
+            iter_corrections[['x','y','iter_2_final_top']],
+            df_inversion[['x','y','Gobs']]],
+            spacing=grav_spacing,
+            region=inv_reg,
+            label='2'
+            )
+    utils.coherency(
+        grids = [
+            iter_corrections[['x','y','iter_3_final_top']],
+            df_inversion[['x','y','Gobs']]],
+            spacing=grav_spacing,
+            region=inv_reg,
+            label='3'
+            )
     """
-
