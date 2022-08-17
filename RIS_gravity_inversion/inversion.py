@@ -1170,6 +1170,24 @@ def jacobian_prism(gravity_data, gravity_col, model, delta, field):
     #         density = 1, # unit density
     #         field = 'g_z',)
 
+def solver(
+    jacobian: np.array, 
+    residuals: np.array, 
+    solver_type='least squares',
+    ):
+    if solver_type == 'least squares':
+        # Calculate shift to prism's tops to minimize misfit
+        # gives the amount that each column's Z1 needs to change by to have the smallest misfit
+        # finds the least-squares solution to jacobian and Grav_Misfit, assigns the first value to Surface_correction
+        step = lsqr(jacobian, residuals, show=False)[0] 
+    elif solver_type == 'gauss newton':
+        hessian = jacobian.T @ jacobian
+        gradient = jacobian.T @ residuals
+        step = np.linalg.solve(hessian, gradient)
+    elif solver_type == 'steepest descent':
+        step = - jacobian.T @ residuals
+    return step
+
 def plot_inversion_results(
     input_grav: pd.DataFrame,
     active_layer: str,
@@ -1499,6 +1517,7 @@ def geo_inversion(
     delta_misfit_squared_tolerance: float =0.002,
     Max_Iterations: int =3,
     deriv_type: str = 'prisms',
+    solver_type: str = 'least squares',
     max_layer_change_per_iter: float=100,
     **kwargs
     ): 
@@ -1529,6 +1548,9 @@ def geo_inversion(
     deriv_type : {'prisms', 'annulus'}, optional
         choose method for calculating vertical derivative of gravity, by 
         default 'prisms'
+    solver_type : {'least squares', 'gauss newton', 'steepest descent'}, optional
+        choose method for solving for geometry correction, by 
+        default 'least squares'
     max_layer_change_per_iter : float, optional
         maximum amount each prism's surface can change by during each iteration, 
         by default 100
@@ -1567,15 +1589,6 @@ def geo_inversion(
             iter_corrections: pd.DataFrame with corrections and updated geometry of the inversion layer for each iteration.
             gravity: pd.DataFrame with new columns of inversion results
     """    
-    """
-
-    exclude_layers: array of strings, layers to exclude from total forward gravity, and remove from observed gravity.
-    input_grav_column: str: variable of input_grav to use.
-
-    
-    deriv_type: strl defaults to 'annulus', ArithmeticError
-    max_layer_change_per_iter: float; max amount each prism can change per iteration.
-    """
     input_grav_column = kwargs.get("input_grav_column", "Gobs")
     apply_constraints = kwargs.get('apply_constraints', False)
     constraints_grid = kwargs.get('constraints_grid', None)
@@ -1629,10 +1642,9 @@ def geo_inversion(
         else:
             print('not valid derivative type')  
 
-        # Calculate shift to prism's tops to minimize misfit
-        # gives the amount that each column's Z1 needs to change by to have the smallest misfit
-        # finds the least-squares solution to jacobian and Grav_Misfit, assigns the first value to Surface_correction
-        Surface_correction=lsqr(jac, gravity.res.values, show=False)[0] 
+        # Calculate correction for each prism's surface
+        # Surface_correction=lsqr(jac, gravity.res.values, show=False)[0] 
+        Surface_correction = solver(jac, gravity.res.values, solver_type=solver_type)
 
         for i in range(0,len(prisms)):
             if Surface_correction[i] > max_layer_change_per_iter:

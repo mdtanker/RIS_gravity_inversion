@@ -14,38 +14,52 @@ If you get an error from pyproj while using the package try:
 
 Add local antarctic_plots repo in editable mode:
 
-    pip install antarctic_plots --no-binary :all:
+    cd antarctic_plots 
+    pip install -e . 
+    <!-- pip install antarctic_plots --no-binary :all: -->
 
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 ## To Do
 
-### Issues
+### Inversion-specific
+#### Features
+* implement Gauss-Newton Least Squares Solution 
+* implement Steepest Descent Least Squares Solution (From Fatiando community call video)
+* increase grid spacing of buffer zone
+    * use discretize package, rioxarray.pad_box or xarray.pad 
+* implement depth-dependent density 
+    * both ice and sediment (like harmonica.tesseroid_gravity)
+#### Bugs
 * test with layers with NaN's (instead of ice and water elev = 0 for no ice, make nans)
-* fix constraints on GL plotting
-### Short-term
+* fix density inversion
+* fix Jacobian calculation with annulus
+#### Improvements
+* use vd.median_distance for constraints grid construction
+* use rioxarray.reproject_match for resampling
+* use hm.EquivalentSources.jacobian to calculate jac.
+* use Dask Bags to parallelize forward grav calculations of a dict of prism layers
+#### Misc
+* add hm.EquivalentSources as method for regional calc
+* use vd.Trend.jacobian for regularization
+* use vd.base.least_squares for optimization
 * add spacing parameter to grdfilters
+
+### Other
+#### Features
 * use rosetta ice thickness
 * do forward model with rosetta density
 * use Boule to remove normal gravity
     - using rosetta "FAG_levelled" channel
-* fix density inversion
-* use rioxarray.pad_box or xarray.pad for padding
-* use rioxarray.reproject_match for resampling
-* use vd.median_distance for constraints grid construction
-* use hm.EquivalentSources.jacobian to calculate jac.
-* add hm.EquivalentSources as method for regional calc
-* use vd.Trend.jacobian for regularization
-* use vd.base.least_squares for optimization
-
-### Long-term
+#### Bugs
+* fix constraints on GL plotting
 * fix pyvista to work on remote server
     * use pvxarray for plotting topographies in 3D
-* use discretize package to increase grid spacing outside of inv_reg
-* implement vertically increasing density to both ice and sediment (like harmonica.tesseroid_gravity)
 
 ## Questions:
 * should we use raw gravity observation points, or interpolated grid?
+
+
 
 ## Other Gravity Inversion Software 
 
@@ -82,11 +96,3 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 ### Growth 3.0 Fortran Code
 * 3D
 * accepts seeds
-
- 
-
- 
-
- 
-
- 
