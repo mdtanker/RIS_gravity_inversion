@@ -14,10 +14,11 @@ import verde as vd
 import xarray as xr
 from tqdm import tqdm
 import rioxarray
-import warnings
-import RIS_gravity_inversion.utils as utils
-from typing import Union
 import seaborn as sns
+import antarctic_plots.utils as utils
+import warnings
+from typing import Union
+
 
 warnings.filterwarnings('ignore', message="pandas.Int64Index")
 warnings.filterwarnings('ignore', message="pandas.Float64Index")
@@ -409,7 +410,7 @@ def grids_to_prism_layers(
                     reference=layers[reversed_layers_list.iloc[i-1]]['grid'],
                     properties={'density':layers[j]['grid'].density})
                 print(f'{j} top: {int(np.nanmean(layers[j]["prisms"].top.values))}m and' 
-                    f'bottom: {int(np.nanmean(layers[j]["prisms"].bottom.values))}m')
+                    f' bottom: {int(np.nanmean(layers[j]["prisms"].bottom.values))}m')
     
     if plot == True:
         if plot_type=='3D':
@@ -551,6 +552,7 @@ def forward_grav_layers(
             coordinates = (df_forward.x, df_forward.y, df_forward.z), 
             field = 'g_z')
         df_forward[f"{k}_forward_grav"] -= df_forward[f"{k}_forward_grav"].mean()
+        print(f"{len(v['prisms'].to_dataframe().reset_index())} prisms in {k} layer")
         print(f'finished {k} layer')
 
     # add gravity effects of all input layers
@@ -806,7 +808,6 @@ def anomalies(
         misfit_filled = misfit.rio.write_nodata(np.nan).rio.interpolate_na()
 
     if regional_method=='trend':
-
         df = vd.grid_to_table(misfit_filled).astype('float64')
         trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.z)
         anomalies['reg'] = trend.predict((anomalies.x, anomalies.y))
@@ -1175,26 +1176,45 @@ def solver(
     residuals: np.array, 
     solver_type='least squares',
     ):
+    """
+    Calculate shift to add to prism's for each iteration of the inversion.
+    Parameters
+    ----------
+    jacobian : np.array
+        input jacobian matrix with a row per gravity observation, and a column per prisms. 
+    residuals : np.array
+        array of gravity residuals
+    solver_type : str, optional
+        choose which solving method to use, by default 'least squares'
+
+    Returns
+    -------
+    np.array
+        array of corrrection values to apply to each prism.
+    """
     if solver_type == 'least squares':
-        # Calculate shift to prism's tops to minimize misfit
         # gives the amount that each column's Z1 needs to change by to have the smallest misfit
         # finds the least-squares solution to jacobian and Grav_Misfit, assigns the first value to Surface_correction
         step = lsqr(jacobian, residuals, show=False)[0] 
-    elif solver_type == 'gauss newton':
-        hessian = jacobian.T @ jacobian
-        gradient = jacobian.T @ residuals
-        step = np.linalg.solve(hessian, gradient)
-    elif solver_type == 'steepest descent':
-        step = - jacobian.T @ residuals
+    # elif solver_type == 'gauss newton':
+    #     # doesn't currently work
+    #     hessian = jacobian.T @ jacobian
+    #     gradient = jacobian.T @ residuals
+    #     step = np.linalg.solve(hessian, gradient)
+    # elif solver_type == 'steepest descent':
+    #     # doesn't currently work
+    #     step = - jacobian.T @ residuals
     return step
 
 def plot_inversion_results(
-    input_grav: pd.DataFrame,
+    input_grav: Union[pd.DataFrame, str],
+    iter_corrections: Union[pd.DataFrame, str],
+    layers: dict,
     active_layer: str,
     grav_spacing: int,
     epsg: str,
-    layers: dict,
-    iter_corrections: pd.DataFrame,
+    save_topo_nc: bool = False,
+    save_residual_nc: bool = False,
     **kwargs
     ):
     """
@@ -1202,14 +1222,12 @@ def plot_inversion_results(
 
     Parameters
     ----------
-    input_grav : pd.DataFrame
-        Input gravity data with inversion results columns.
-    active_layer : str
-        Layer which was inverted for.
-    grav_spacing : int
-        Spacing of the gravity data for create plots.
-    epsg : str
-        Coordinate reference system string as input for rioxarray.clip().
+    input_grav : pd.DataFrame or str
+        Input gravity data with inversion results columns. Alternatively provide string 
+        of csv filename.
+    iter_corrections : pd.DataFrame or str
+        Dataframe with corrections and updated geometry of the inversion layer for each 
+        iteration. Alternatively provide string of csv filename.
     layers : dict
         Nested dict; where each layer is a dict with keys: 
             'spacing': int, float; grid spacing 
@@ -1217,9 +1235,19 @@ def plot_inversion_results(
             'rho': int, float; constant density value for layer
             'grid': xarray.DataArray;  
             'df': pandas.DataFrame; 2d representation of grid
-    iter_corrections : pd.DataFrame
-        Dataframe with corrections and updated geometry of the inversion layer for each iteration.
-            
+    active_layer : str
+        Layer which was inverted for.
+    grav_spacing : int
+        Spacing of the gravity data for create plots.
+    epsg : str
+        Coordinate reference system string as input for rioxarray.clip().
+    save_topo_nc : bool
+        Choose to save the final inverted topography as a netcdf with an optional kwarg 
+        filename.
+    save_residual_nc : bool
+        Choose to save the initial residual as a netcdf with an optional kwarg 
+        filename.
+
     Keyword Args
     ----------------
     inversion_region : Union[str, np.ndarray], optional
@@ -1235,7 +1263,17 @@ def plot_inversion_results(
         Locations of constraint points, by default is None.
     max_layer_change_per_iter : float
         Use the value set in inversion.geo_inversion(), by default is max absolute value of change in first iteration.
+    topo_fname: str
+        Customize the name of the saved netcdf file, by default is 'inverted_topo'.
+    residual_fname: str
+        Customize the name of the saved netcdf file, by default is 'initial_residual'.
     """    
+ 
+    if isinstance(input_grav, str):
+        input_grav = pd.read_csv(input_grav)
+
+    if isinstance(iter_corrections, str):
+        iter_corrections = pd.read_csv(iter_corrections)
 
     # either set input inversion region or get from input gravity data extent
     inversion_region = kwargs.get('inversion_region', 
@@ -1384,6 +1422,8 @@ def plot_inversion_results(
                 topo_lims = (np.nanquantile(masked, q=percent/100),
                     np.nanquantile(masked, q=1-(percent/100)))
 
+                initial_residual = grid1.copy()
+
             p=0
 
             ax = plt.subplot(gs[ITER-1,p])
@@ -1505,6 +1545,15 @@ def plot_inversion_results(
         if plot_constraints is True:
             ax.plot(constraints.x, constraints.y, 'k+')
 
+        if save_topo_nc is True:
+            final_topo.to_netcdf(
+                f"results/{kwargs.get('topo_fname','inverted_topo')}.nc")
+
+        if save_residual_nc is True:
+            initial_residual.to_netcdf(
+                f"results/{kwargs.get('residual_fname','initial_residual')}.nc")
+
+        
     if plot_type=='pygmt':
             fig.show(width=1200)
 
@@ -1519,6 +1568,7 @@ def geo_inversion(
     deriv_type: str = 'prisms',
     solver_type: str = 'least squares',
     max_layer_change_per_iter: float=100,
+    save_results: bool = False,
     **kwargs
     ): 
     """
@@ -1554,7 +1604,8 @@ def geo_inversion(
     max_layer_change_per_iter : float, optional
         maximum amount each prism's surface can change by during each iteration, 
         by default 100
-
+    save_results : bool, optional
+        choose whether to save results as a csv, by default is False
     Other Parameters
     ----------------
     **kwargs : dict
@@ -1581,6 +1632,10 @@ def geo_inversion(
         constraints: pd.DataFrame, 
             Locations of constraint points to interpolate between for calculating 
             regional misfit if regional_method = 'constraints'.   
+        fname_topo: str
+            set csv filename, by default is 'topo_results' 
+        fname_gravity: str
+            set csv filename, by default is 'gravity_results'
 
     Returns
     -------
@@ -1749,4 +1804,9 @@ def geo_inversion(
     # end of inversion iteration WHILE loop
     if delta_misfit_squared < 1+delta_misfit_squared_tolerance:
         print("terminated - no significant variation in least-squares norm ")
+    
+    if save_results is True:
+        iter_corrections.to_csv(f"results/{kwargs.get('fname_topo', 'topo_results')}.csv", index=False)
+        gravity.to_csv(f"results/{kwargs.get('fname_gravity', 'gravity_results')}.csv", index=False)
+    
     return iter_corrections, gravity

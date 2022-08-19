@@ -4,8 +4,6 @@ bathymetry_data/bedmap_all.txt
 bathymetry_data/bedmap2_bed.nc
 inversion_layers/constraints_xy.txt 
 
-/figures/
-
 tmp_outputs/*
 !tmp_outputs/.gitkeep 
 

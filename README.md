@@ -24,18 +24,21 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 ### Inversion-specific
 #### Features
-* implement Gauss-Newton Least Squares Solution 
-* implement Steepest Descent Least Squares Solution (From Fatiando community call video)
 * increase grid spacing of buffer zone
     * use discretize package, rioxarray.pad_box or xarray.pad 
 * implement depth-dependent density 
     * both ice and sediment (like harmonica.tesseroid_gravity)
 #### Bugs
 * test with layers with NaN's (instead of ice and water elev = 0 for no ice, make nans)
+* fix Gauss-Newton Least Squares Solution 
+* fix Steepest Descent Least Squares Solution
 * fix density inversion
 * fix Jacobian calculation with annulus
 #### Improvements
+* use xrft for coherency and power spectrum: https://xrft.readthedocs.io/en/latest/MITgcm_example.html
+* use xrscipy for coherency ans spectra: https://xr-scipy.readthedocs.io/en/latest/spectral.html
 * use vd.median_distance for constraints grid construction
+* use xarray-spatial proximity for constraints grid: https://xarray-spatial.org/user_guide/proximity.html
 * use rioxarray.reproject_match for resampling
 * use hm.EquivalentSources.jacobian to calculate jac.
 * use Dask Bags to parallelize forward grav calculations of a dict of prism layers
