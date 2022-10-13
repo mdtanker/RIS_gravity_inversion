@@ -1,5 +1,5 @@
 # RIS_gravity_inversion
-Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inverison to model the sub ice shelf bathymetry. 
+Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inversion to model the sub-ice shelf bathymetry. 
 
 ## Install
 
@@ -36,7 +36,7 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 * fix Jacobian calculation with annulus
 #### Improvements
 * use xrft for coherency and power spectrum: https://xrft.readthedocs.io/en/latest/MITgcm_example.html
-* use xrscipy for coherency ans spectra: https://xr-scipy.readthedocs.io/en/latest/spectral.html
+* use xrscipy for coherency and spectra: https://xr-scipy.readthedocs.io/en/latest/spectral.html
 * use vd.median_distance for constraints grid construction
 * use xarray-spatial proximity for constraints grid: https://xarray-spatial.org/user_guide/proximity.html
 * use rioxarray.reproject_match for resampling
@@ -60,7 +60,7 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
     * use pvxarray for plotting topographies in 3D
 
 ## Questions:
-* should we use raw gravity observation points, or interpolated grid?
+* should we use raw gravity observation points or interpolated grid?
 
 
 
@@ -78,11 +78,11 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 ### SimPEG 
 * 3D
-* mesh based, not well suited (yet) for vertical prism inversion
+* mesh-based, not well suited (yet) for vertical prism inversion
 
 ### PyGIMLI 
 * 3D
-* mesh based
+* mesh-based
 
 ### GNS Woodward Fortran Code 
 * 3D 
