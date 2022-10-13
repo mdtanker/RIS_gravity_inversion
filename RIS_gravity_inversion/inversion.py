@@ -15,7 +15,7 @@ import xarray as xr
 from tqdm import tqdm
 import rioxarray
 import seaborn as sns
-import antarctic_plots.utils as utils
+from  antarctic_plots import utils, maps
 import warnings
 from typing import Union
 
@@ -114,7 +114,8 @@ def import_layers(
         """
         grav['z'] = xr.ones_like(grav.Gobs) + 1e3 
         grav.to_netcdf('tmp_outputs/tmp_grav.nc')
-
+        grav = xr.load_dataset('tmp_outputs/tmp_grav.nc')
+        
     if grav_file[-3:] == 'csv':
         # read file
         df=pd.read_csv(grav_file, index_col=False)
@@ -212,27 +213,49 @@ def import_layers(
         print(f'bathymetry control points:{len(constraints_df)}') 
 
     if plot==True:
+        if grav_file[-3:] == 'csv':
+            grav_grid = pygmt.xyz2grd(data=grav, 
+                    region=inversion_region, 
+                    spacing=grav_spacing,  
+                    registration='p')
+        elif grav_file[-3:] == '.nc':
+            grav_grid = grav.Gobs
+
         if kwargs.get("plot_type", 'xarray') =='pygmt':
-            utils.plot_grd(
-                grid = grid_grav.Gobs, 
-                plot_region=kwargs.get('plot_region', inversion_region), 
+            # pygmt.grd2cpt(
+            #     cmap="jet",
+            #     grid=grav_grid,
+            #     region=inversion_region,
+            #     background=True,
+            #     continuous=True,
+            #     verbose="e",
+            # )
+            fig = maps.plot_grd(
+                grid = grav_grid, 
                 cmap = "jet",
-                grd2cpt_name = 'grav',
+                plot_region=kwargs.get('plot_region', inversion_region), 
+                coast=True,
+                # grd2cpt = True,
                 cbar_label = "observed gravity (mGal)", 
-                constraints = constraints,    
+                # points = constraints_df,   
+                show_region=inversion_region,
+                scalebar=True, 
                 )
 
             for i, (k, v) in enumerate(layers.items()):
-                utils.plot_grd(
+                fig = maps.plot_grd(
                     grid=layers[k]['grid'], 
-                    plot_region=kwargs.get('plot_region', inversion_region), 
-                    # cmap = "plotting/layer.cpt",
                     cmap='viridis',
-                    grd2cpt_name = 'elevations',
+                    plot_region=kwargs.get('plot_region', inversion_region), 
+                    coast=True,
+                    grd2cpt = True,
                     cbar_label = f"{k} elevation (m)",
                     origin_shift='xshift',
+                    fig=fig,
+                    show_region=inversion_region,
                     )
-            fig.show(width=1200)
+            fig.show()
+
         elif kwargs.get("plot_type", 'xarray') == 'xarray':
             if constraints == True:
                 extra=2
@@ -240,13 +263,6 @@ def import_layers(
                 extra=1
             fig, ax = plt.subplots(ncols=len(layers)+extra, nrows=1, figsize=(20,20))
             p=0
-            if grav_file[-3:] == 'csv':
-                grav_grid = pygmt.xyz2grd(data=grav, 
-                        region=inversion_region, 
-                        spacing=grav_spacing,  
-                        registration='p')
-            elif grav_file[-3:] == '.nc':
-                grav_grid = grav.Gobs
             grav_grid.plot(ax=ax[p], robust=True, cmap='RdBu_r', 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax[p].set_title('Observed gravity')
@@ -297,7 +313,7 @@ def import_layers(
             grids.append(v['grid'])
         names.append('observed_gravity')
         grids.append(grav_grid)
-        utils.raps(grids, names)
+        utils.raps(grids, names, plot_type='pygmt')
 
     if constraints is True:
         return (layers, grav.astype(np.float64), grav_spacing, constraints_grid, constraints_df, constraints_RIS_df) 
@@ -559,6 +575,8 @@ def forward_grav_layers(
     grav_layers_list = [f'{i}_forward_grav' for i in include_forward_layers]
     df_forward['forward_total'] = df_forward[grav_layers_list].sum(axis=1, skipna=True)
 
+    plotting_layers = pd.Series([k for k, v in layers.items()])
+
     if plot==True:
         if plot_type=='pygmt':
             utils.plot_grd(
@@ -568,7 +586,7 @@ def forward_grav_layers(
                 grd2cpt_name='grav',
                 cbar_label = f"combined forward gravity (mGal)",)
 
-            for i, j in enumerate(include_forward_layers):
+            for i, j in enumerate(plotting_layers):
                 utils.plot_grd(
                     # plot_region=buffer_reg,
                     grid=grid_grav[j],
@@ -578,7 +596,7 @@ def forward_grav_layers(
                     origin_shift='xshift',)
             fig.show(width=1200) 
         elif plot_type=='xarray':
-            fig, ax = plt.subplots(ncols=len(include_forward_layers)+1, nrows=1, figsize=(20,20))
+            fig, ax = plt.subplots(ncols=len(plotting_layers)+1, nrows=1, figsize=(20,20))
             grid= pygmt.xyz2grd(data=df_forward[['x','y','forward_total']], 
                     region=inversion_region, 
                     spacing=grav_spacing,  
@@ -586,7 +604,7 @@ def forward_grav_layers(
             grid.plot(ax=ax[0], x='x', y='y', robust=True, cmap='RdBu_r', 
                 cbar_kwargs={'orientation':'horizontal', 'anchor':(1,1.8)})  
             ax[0].set_title('Total forward gravity')
-            for i, j in enumerate(include_forward_layers):
+            for i, j in enumerate(plotting_layers):
                 grid = pygmt.xyz2grd(data=df_forward[['x','y',f"{j}_forward_grav"]], 
                         region=inversion_region, 
                         spacing=grav_spacing,  
@@ -600,7 +618,7 @@ def forward_grav_layers(
                 a.set_xlabel('')
                 a.set_ylabel('')
                 a.set_aspect('equal')
-    
+
     if plot_dists==True:
         # get column to include in plots
         df=df_forward[['forward_total']+grav_layers_list]
@@ -633,6 +651,9 @@ def forward_grav_layers(
             ax.axvline(x=d.value['median'], c='grey', ls='--', lw=1.5, label='median')
             ax.legend(fontsize=8)
 
+        # add title 
+        g.fig.suptitle('Forward gravity histograms', y=1, va='bottom', size=16, fontweight='bold')
+
         # seperate plot of layers include in forward total
         df = df_forward[['forward_total']+grav_layers_list]
         plt.figure()
@@ -643,6 +664,7 @@ def forward_grav_layers(
             multiple='stack', 
             element='step'
         )
+        plt.title('Stacked histograms of forward gravity', size=16, fontweight='bold')
 
     if kwargs.get('power_spectrum', False) is True:
         utils.raps(
