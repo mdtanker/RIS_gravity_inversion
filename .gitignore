@@ -1,17 +1,21 @@
+# large data files
 bathymetry_data/BedMachineAntarctica_2020-07-15_v02.nc
 bathymetry_data/bedmachine_RIGGS.csv
 bathymetry_data/bedmap_all.txt
 bathymetry_data/bedmap2_bed.nc
 inversion_layers/constraints_xy.txt
 
+# output results
 results/*
 
+# temp files
 tmp_outputs/*
 !tmp_outputs/.gitkeep
 
 # Compiled python modules.
 **/*.pyc
-**/__pycache__
+**/__pycache__/
+__pycache__/
 
 # Jupyter checkpoints
 /.ipynb_checkpoints/
@@ -21,3 +25,6 @@ tmp_outputs/*
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info
+
+# vs code
+.vscode/
