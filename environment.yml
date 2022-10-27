@@ -1,0 +1,25 @@
+name: RIS_gravity_inversion
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pygmt
+  - geopandas
+  - numpy
+  - pandas
+  - snakeviz
+  - scipy
+  - matplotlib
+  - pyproj
+  - pyvista
+  - harmonica
+  - verde
+  - xarray
+  - tqdm
+  - rioxarray
+  - ipykernel
+  - ca-certificates
+  - openssl
+  - seaborn
+prefix: /home/tankerma/miniconda/envs/RIS_gravity_inversion
