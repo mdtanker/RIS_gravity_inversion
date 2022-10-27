@@ -8,6 +8,9 @@ inversion_layers/constraints_xy.txt
 # output results
 results/*
 
+# inversion layers
+inversion/layers/*
+
 # temp files
 tmp_outputs/*
 !tmp_outputs/.gitkeep
