@@ -24,6 +24,7 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 ### Inversion-specific
 #### Features
+* look into GMT gravprisms for method comparison, or for vertically varying density (via stacks of prisms)
 * increase grid spacing of buffer zone
     * use discretize package, rioxarray.pad_box or xarray.pad 
 * implement depth-dependent density 
