@@ -9,7 +9,7 @@ Here are some notes on the common workflows for processing airborne gravity data
 ## Initial Corrections
 
 * split Sorties into lines
-    * removal of takeoff/landing and turns 
+    * removal of takeoff/landing and turns
 * remove turbulance
 * quality control
 * positioning offset (GPS relative to sensor)
@@ -25,10 +25,13 @@ Here are some notes on the common workflows for processing airborne gravity data
     * used in Oasis Montaj
 * Machine drift
     * [Gsolve](https://www.sciencedirect.com/science/article/pii/S2352711018300566)
+    * Constant shift on line-by-line basis to bring to absolute gravity from base station.
+        * average the pre- and post-flight readings of each flight
+        * remove the difference between that average and the local g value
 * Tidal correction
     * body (solid-earth) tides
         * [More info](https://geodesyworld.github.io/SOFTS/solid.htm)
-        * up to 30cm    
+        * up to 30cm
         * does not average to zero
         * Equitorial bulge partially due to 1)Earth's rotation and 2) average attraction of the Moon and Sun
             * called permanent tidal deformation (PTD)
@@ -36,7 +39,7 @@ Here are some notes on the common workflows for processing airborne gravity data
             * [LongmanTide](https://github.com/bradyzp/LongmanTide/)
                 * uses Longman 1959 formula
             * [pyGrav](https://github.com/basileh/pyGrav/tree/master/main_code)
-                * Hector and Hinderer 2016: https://doi.org/10.1016/j.cageo.2016.03.010 
+                * Hector and Hinderer 2016: https://doi.org/10.1016/j.cageo.2016.03.010
                 * uses Cattin et al. 2015 functions:
             * [Gsolve](https://www.sciencedirect.com/science/article/pii/S2352711018300566)
                 * uses Longman 1959 formula
@@ -56,7 +59,7 @@ Here are some notes on the common workflows for processing airborne gravity data
     * vertical component of this accel is relatived to curved earth, known as the Eotvos effect (<30mGals)
     * R. B. Harlan, "Eötvös corrections for airborne gravimetry", Journal of Geophysics Research, vol 73, no 14 (July 15, 1968).
     * M. Glicken, "Eötvös corrections for a moving gravity meter", Geophysics, vol 27, no 4 (1962), pp. 531-533.
-    * Oasis Montaj [docs](https://my.seequent.com/support/search/help/oasismontaj--content_gxhelp_g_geosoft_gx_gravity_eotvoscorrection.htm?page=3&types=&product=&keyword=airborne%20&kbtypes=&language=en_US&name=E%C3%B6tv%C3%B6s%20Correction) have equations 
+    * Oasis Montaj [docs](https://my.seequent.com/support/search/help/oasismontaj--content_gxhelp_g_geosoft_gx_gravity_eotvoscorrection.htm?page=3&types=&product=&keyword=airborne%20&kbtypes=&language=en_US&name=E%C3%B6tv%C3%B6s%20Correction) have equations
 * Levelling
     * Systematic errors
         * typically removed with known corrections (IGRF, heading, etc.)
@@ -76,16 +79,16 @@ Here are some notes on the common workflows for processing airborne gravity data
             * Workflow
                 * Simple
                     * assume cross-overs on average are 0
-                    * discard mis-ties in areas of high horizontal gradients 
+                    * discard mis-ties in areas of high horizontal gradients
                     * analyize mis-ties and remove outliers
                     * statistically level tie lines to match flight lines (shifted, linearly trended ,splined, or b-splined)
-                    * calc new intersections 
+                    * calc new intersections
                     * manually adjust specific mis-ties
                     * optionally filter the mis-tie values
                     * apply difference at cross-overs, and linearly interpolate between cross-over points
                 * Careful
-                    * apply shifts, tilts, spline, of tensioned spline corrections to individual lines           
-* Microlevelling 
+                    * apply shifts, tilts, spline, of tensioned spline corrections to individual lines
+* Microlevelling
     * Oasis Montaj
         * Extract Noise
             * default grid cell is 1/5 line spacing
