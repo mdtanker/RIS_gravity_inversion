@@ -1,5 +1,5 @@
 # RIS_gravity_inversion
-Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inversion to model the sub-ice shelf bathymetry. 
+Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inversion to model the sub-ice shelf bathymetry.
 
 ## Install
 
@@ -14,8 +14,8 @@ If you get an error from pyproj while using the package try:
 
 Add local antarctic_plots repo in editable mode:
 
-    cd antarctic_plots 
-    pip install -e . 
+    cd antarctic_plots
+    pip install -e .
     <!-- pip install antarctic_plots --no-binary :all: -->
 
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
@@ -26,12 +26,17 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 #### Features
 * look into GMT gravprisms for method comparison, or for vertically varying density (via stacks of prisms)
 * increase grid spacing of buffer zone
-    * use discretize package, rioxarray.pad_box or xarray.pad 
-* implement depth-dependent density 
+    * use discretize package, rioxarray.pad_box or xarray.pad
+* implement depth-dependent density
     * both ice and sediment (like harmonica.tesseroid_gravity)
+
+* for gmt surface:
+    * from Scheinert et al. 2016 "It is recommended to use values of 0.25, ... , 0.3 for potential field data, whereas a larger tension factor (0.35) should be used for topography data [Wessel and Smith, 2015]. Here a tension factor of 0.3 was utilized."
+    * use this for creating a surface between constraint points
+
 #### Bugs
 * test with layers with NaN's (instead of ice and water elev = 0 for no ice, make nans)
-* fix Gauss-Newton Least Squares Solution 
+* fix Gauss-Newton Least Squares Solution
 * fix Steepest Descent Least Squares Solution
 * fix density inversion
 * fix Jacobian calculation with annulus
@@ -65,37 +70,37 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 
 
-## Other Gravity Inversion Software 
+## Other Gravity Inversion Software
 
-### Geosoft Oasis Montaj 
-* 3D 
-* Square grid network 
+### Geosoft Oasis Montaj
+* 3D
+* Square grid network
 
-### MiraGeoscience 
+### MiraGeoscience
 * 3D
 * offer Vertical Prisms inversion
 
-### Fatiando a Terra / Harmonica 
+### Fatiando a Terra / Harmonica
 
-### SimPEG 
+### SimPEG
 * 3D
 * mesh-based, not well suited (yet) for vertical prism inversion
 
-### PyGIMLI 
+### PyGIMLI
 * 3D
 * mesh-based
 
-### GNS Woodward Fortran Code 
-* 3D 
-* Triangular grid network 
-* Irregular grid spacing 
-* Accepts constraint cells 
+### GNS Woodward Fortran Code
+* 3D
+* Triangular grid network
+* Irregular grid spacing
+* Accepts constraint cells
 
-### GNS Nagy / Woodward Python Code 
-* 3D 
-* Same optimization of GNS fortran code 
-* Square grid network 
-* different grid spacing for each layer 
+### GNS Nagy / Woodward Python Code
+* 3D
+* Same optimization of GNS fortran code
+* Square grid network
+* different grid spacing for each layer
 
 ### Growth 3.0 Fortran Code
 * 3D
