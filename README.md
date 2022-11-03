@@ -1,24 +1,46 @@
 # RIS_gravity_inversion
 Here we use gravity data from Antarctica's Ross Ice Shelf region, mainly airborne data from the ROSETTA-Ice project, to perform a gravity inversion to model the sub-ice shelf bathymetry.
 
-## Install
+## Getting the code
+
+You can download a copy of all the files for this project by cloning the GitHub repository:
+
+    git clone https://github.com/mdtanker/RIS_gravity_inversion
+
+
+## Dependencies
 
 Install the required dependencies with either `conda` or `mamba` with the environment.yml file:
 
-    mamba env create -f environment.yml
+    cd RIS_gravity_inversion
+
+    mamba env create
+
+Activate the newly created environment:
+
+    mamba activate RIS_gravity_inversion
+
+Add local antarctic_plots repo in editable mode:
+
+    tried:
+    cd antarctic_plots
+    pip install -e .
+
+    need to try:
+    pip install "poetry>=1.2"
+    cd antarctic_plots
+    poetry install
 
 If you get an error from pyproj while using the package try:
 
     conda remove --force pyproj
     pip install pyproj
 
-Add local antarctic_plots repo in editable mode:
-
-    cd antarctic_plots
-    pip install -e .
-    <!-- pip install antarctic_plots --no-binary :all: -->
-
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
+
+
+mamba create --name RIS_gravity_inversion --yes "python<3.10" "pygmt>=0.7.0" "geopandas>=0.11.0" numpy pandas snakeviz scipy matplotlib pyproj pyvista ipyvtklink harmonica verde xarray tqdm rioxarray ipykernel seaborn pip
+
 
 ## To Do
 
