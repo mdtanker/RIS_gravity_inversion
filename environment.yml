@@ -22,4 +22,7 @@ dependencies:
   - ca-certificates
   - openssl
   - seaborn
+  - ipyvtklink
+  - pip
+    - pip: numba-progress
 prefix: /home/tankerma/miniconda/envs/RIS_gravity_inversion
