@@ -7,7 +7,6 @@ You can download a copy of all the files for this project by cloning the GitHub 
 
     git clone https://github.com/mdtanker/RIS_gravity_inversion
 
-
 ## Dependencies
 
 Install the required dependencies with either `conda` or `mamba` with the environment.yml file:
@@ -31,6 +30,11 @@ Add local antarctic_plots repo in editable mode:
     cd antarctic_plots
     poetry install
 
+If `environment.yml` has been updated:
+
+    mamba activate RIS_gravity_inversion
+    conda env update --file environment.yml
+
 If you get an error from pyproj while using the package try:
 
     conda remove --force pyproj
@@ -40,6 +44,19 @@ Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
 
 mamba create --name RIS_gravity_inversion --yes "python<3.10" "pygmt>=0.7.0" "geopandas>=0.11.0" numpy pandas snakeviz scipy matplotlib pyproj pyvista ipyvtklink harmonica verde xarray tqdm rioxarray ipykernel seaborn pip
+
+
+## Data sources
+
+### Bedmap2
+Surface Coverage | Bed Coverage
+:---:|:---:
+![](figures/bedmap2_surface_coverage.JPG)|![](figures/bedmap2_bed_coverage.JPG)
+
+For the Ross Ice Shelf:
+* surface elevation from satellite altimetry (Griggs and Bamber, 2011)
+* ice thickness from satellite altimetry measurements of freeboard (Griggs and Bamber, 2011)
+* bed from Timmerman et al. 2010
 
 
 ## To Do
