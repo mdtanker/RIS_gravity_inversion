@@ -736,7 +736,7 @@ def anomalies(
         _input gravity data
     grav_spacing : int
         spacing of gravity data, to use for make misfit grid and plotting
-    regional_method : {'trend', 'filter', 'constraints'}
+    regional_method : {'trend', 'filter', 'constraints', 'eq_sources'}
         choose a method to determine the regional gravity misfit.
 
     Other Parameters
@@ -776,7 +776,12 @@ def anomalies(
         'reg': regional gravity misfit
         'res': residual graivty misift
     """
-
+    # must provide kwargs with same name as method type.
+    # for example, if regional_method='trend', must provide a trend order via the kwarg
+    # 'trend'=6.
+    # for constraints, kwarg is a dataframe of constraint points
+    # for filter, kwarg is a pygmt filter string, such as "g150e3" for a 150km gaussian
+    # for eq_sources, kwargs is depth of sources in meters
     if kwargs.get(regional_method) is None:
         raise ValueError(
             f"Must provide keyword argument '{regional_method}' if regional_method ="
@@ -792,9 +797,11 @@ def anomalies(
         vd.get_region((input_grav.x, input_grav.y)))
 
 
+    # get kwargs associated with the various methods
     trend = kwargs.get('trend', None)
     filter = kwargs.get('filter', None)
     constraints = kwargs.get('constraints', None)
+    eq_sources = kwargs.get('eq_sources', None)
 
     crs = kwargs.get('crs', None)
     fill_method = kwargs.get('fill_method', 'pygmt')
@@ -841,12 +848,15 @@ def anomalies(
         misfit = anomalies.set_index(['y','x']).to_xarray().misfit.rio.write_crs(crs)
         misfit_filled = misfit.rio.write_nodata(np.nan).rio.interpolate_na()
 
+
+    # Trend method
     if regional_method=='trend':
         df = vd.grid_to_table(misfit_filled).astype('float64')
         trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.z)
         anomalies['reg'] = trend.predict((anomalies.x, anomalies.y))
         anomalies['res'] = anomalies.misfit - anomalies.reg
 
+    # Filter method
     elif regional_method=='filter':
         # filter the observed-forward misfit with the provided filter in meters
         regional_misfit = pygmt.grdfilter(
@@ -857,6 +867,7 @@ def anomalies(
         anomalies = anomalies.merge(tmp_regrid, on=['x','y'], how='left')
         anomalies['res'] = anomalies.misfit - anomalies.reg
 
+    # Constraints method
     elif regional_method=='constraints':
         # sample observed-forward misfit at constraint points
         tmp_regrid = pygmt.grdtrack(points = constraints[['x','y']],
@@ -877,6 +888,23 @@ def anomalies(
             grid = regional_misfit, radius=0, newcolname = 'reg', verbose='q')
         anomalies = anomalies.merge(tmp_regrid, on=['x','y'], how='left')
         anomalies['res'] =  anomalies.misfit - anomalies.reg
+
+    # Equivalent sources method
+    elif regional_method=='eq_sources':
+        # create set of deep sources
+        equivalent_sources = hm.EquivalentSources(
+            depth=eq_sources,
+            damping=kwargs.get('damping',None), # float: smoothness to impose on estimated coefficients
+            block_size=kwargs.get('block_size', None), # block reduce the data to speed up
+            depth_type=kwargs.get('depth_type', "relative"), # constant depths, not relative to observation heights
+            )
+        # fit the source coefficients to the data
+        coordinates = (anomalies.x, anomalies.y, anomalies.z)
+        equivalent_sources.fit(coordinates, anomalies.misfit)
+        # use sources to predict the regional field at the observation points
+        anomalies['reg'] = equivalent_sources.predict(coordinates)
+        # calculate the residual field
+        anomalies['res'] = anomalies.misfit - anomalies.reg
 
     RMS = round(np.sqrt((anomalies.res**2).mean(skipna=True)),2)
     print(f'Root mean squared residual: {RMS}mGal')
@@ -1641,7 +1669,7 @@ def geo_inversion(
             'rho': int, float; constant density value for layer
             'grid': xarray.DataArray;
             'df': pandas.DataFrame; 2d representation of grid
-    regional_method : {'trend', 'filter', 'constraints'}
+    regional_method : {'trend', 'filter', 'constraints', 'eq_sources'}
         choose a method to determine the regional gravity misfit.
     input_grav : pd.DataFrame
         input gravity data with anomaly columns
