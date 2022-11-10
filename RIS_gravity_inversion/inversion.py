@@ -1728,29 +1728,30 @@ def geo_inversion(
             iter_corrections: pd.DataFrame with corrections and updated geometry of the inversion layer for each iteration.
             gravity: pd.DataFrame with new columns of inversion results
     """
-    input_grav_column = kwargs.get("input_grav_column", "Gobs")
-    apply_constraints = kwargs.get('apply_constraints', False)
-    constraints_grid = kwargs.get('constraints_grid', None)
-    if apply_constraints is not False and constraints_grid is None:
+    # input_grav_column = kwargs.get("input_grav_column", "Gobs")
+    # apply_constraints = kwargs.get('apply_constraints', False)
+    # constraints_grid = kwargs.get('constraints_grid', None)
+    if kwargs.get('apply_constraints', False) is not False and kwargs.get('constraints_grid', None) is None:
         raise ValueError(
-            f"If apply_constraints = {apply_constraints}, constraints_grid must be applied."
+            f"If apply_constraints = {kwargs.get('apply_constraints', False)}, constraints_grid must be applied."
             )
-    trend = kwargs.get("trend", None)
-    filter = kwargs.get("filter", None)
-    constraints = kwargs.get("constraints", None)
-    inversion_region = kwargs.get('inversion_region',
-        vd.get_region((input_grav.x, input_grav.y)))
+    # trend = kwargs.get("trend", None)
+    # filter = kwargs.get("filter", None)
+    # constraints = kwargs.get("constraints", None)
+    # inversion_region = kwargs.get('inversion_region',
+    #     vd.get_region((input_grav.x, input_grav.y)))
 
-    exclude_layers = kwargs.get('exclude_layers', [])
+    # exclude_layers = kwargs.get('exclude_layers', [])
     buffer_region = kwargs.get('buffer_region', None)
-    grav_spacing = kwargs.get('grav_spacing', None)
+    # grav_spacing = kwargs.get('grav_spacing', None)
+
     if buffer_region is None:
         buffer_region = [int(pygmt.grdinfo(
             list(layers.values())[0]['grid'],
             per_column="n", o=i)[:-1]) for i in range(4)]
 
     include_forward_layers = pd.Series([k for k, v in layers.items() if k not in
-        exclude_layers])
+        kwargs.get('corrections', [])])
 
     spacing = layers[active_layer]['spacing']
     misfit_squared_updated=np.Inf  # positive infinity
@@ -1775,9 +1776,20 @@ def geo_inversion(
 
         # calculate jacobian
         if deriv_type == 'annulus': # major issue with grav_column_der, way too slow
-            jac = jacobian_annular(gravity, input_grav_column, prisms, spacing)
+            jac = jacobian_annular(
+                gravity,
+                kwargs.get("input_grav_column", "Gobs"),
+                prisms,
+                spacing,
+                )
         elif deriv_type == 'prisms':
-            jac = jacobian_prism(gravity, input_grav_column, layers[active_layer]['prisms'], 1, "g_z")
+            jac = jacobian_prism(
+                gravity,
+                kwargs.get("input_grav_column", "Gobs"),
+                layers[active_layer]['prisms'],
+                1,
+                "g_z",
+                )
         else:
             print('not valid derivative type')
 
@@ -1794,9 +1806,9 @@ def geo_inversion(
         prisms_above['correction']=Surface_correction
         print(f"RMS layer correction {round(np.sqrt((Surface_correction**2).mean()),2)}m")
         # apply above surface corrections
-        if apply_constraints is True:
-            prisms['constraints'] = constraints_grid.to_dataframe().reset_index().z
-            prisms_above['constraints'] = constraints_grid.to_dataframe().reset_index().z
+        if kwargs.get('apply_constraints', False) is True:
+            prisms['constraints'] = kwargs.get('constraints_grid', None).to_dataframe().reset_index().z
+            prisms_above['constraints'] = kwargs.get('constraints_grid', None).to_dataframe().reset_index().z
             prisms['correction'] = prisms.constraints * prisms.correction
             prisms_above['correction'] = prisms_above.constraints * prisms_above.correction
         else:
@@ -1854,16 +1866,17 @@ def geo_inversion(
 
         print('updating the misfits')
         gravity[f"iter_{ITER}_final_misfit"] = anomalies(
-            layers,
-            gravity,
-            grav_spacing,
-            regional_method,
+            layers = layers,
+            input_grav = gravity,
+            #grav_spacing = grav_spacing,
+            regional_method = regional_method,
             input_forward_column = f'iter_{ITER}_forward_total',
-            corrections=exclude_layers,
-            trend=trend,
-            filter=filter,
-            constraints=constraints,
-            inversion_region=inversion_region,
+            # corrections=exclude_layers,
+            # trend=trend,
+            # filter=filter,
+            # constraints=constraints,
+            # inversion_region=inversion_region,
+            **kwargs,
             ).res
 
         # for first iteration, divide infinity by mean square of gravity residuals, inversion will stop once this gets to delta_misfit_squared_tolerance (0.02)
