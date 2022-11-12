@@ -1,0 +1,11 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "y"
+    ],
+    "actual_range": [
+        -2400000.0,
+        560000.0
+    ],
+    "axis": "Y",
+    "long_name": "y"
+}
