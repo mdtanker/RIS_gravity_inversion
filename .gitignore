@@ -1,16 +1,13 @@
 # large data files
-bathymetry_data/BedMachineAntarctica_2020-07-15_v02.nc
-bathymetry_data/bedmachine_RIGGS.csv
-bathymetry_data/bedmap_all.zip
-bathymetry_data/bedmap2_bed.nc
-inversion_layers/constraints_xy.txt
+# bedmachine_RIGGS.csv
 
 # output results
 results/*
 !results/.gitkeep
 
 # inversion layers
-inversion/layers/*
+inversion_layers/*
+!inversion_layers/.gitkeep
 
 # temp files
 tmp_outputs/*
