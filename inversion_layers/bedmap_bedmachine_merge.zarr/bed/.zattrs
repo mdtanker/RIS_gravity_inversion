@@ -1,0 +1,12 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "y",
+        "x"
+    ],
+    "actual_range": [
+        -5340.16015625,
+        3953.6591796875
+    ],
+    "coordinates": "spatial_ref",
+    "long_name": "z"
+}

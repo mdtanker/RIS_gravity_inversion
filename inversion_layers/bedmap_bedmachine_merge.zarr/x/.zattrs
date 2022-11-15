@@ -1,0 +1,13 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "x"
+    ],
+    "actual_range": [
+        -1560000.0,
+        1400000.0
+    ],
+    "axis": "X",
+    "long_name": "x coordinate of projection",
+    "standard_name": "projection_x_coordinate",
+    "units": "metre"
+}
