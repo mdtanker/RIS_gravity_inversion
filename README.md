@@ -13,27 +13,11 @@ Install the required dependencies with either `conda` or `mamba` with the enviro
 
     cd RIS_gravity_inversion
 
-    mamba env create
+    make intall
 
 Activate the newly created environment:
 
-    mamba activate RIS_gravity_inversion
-
-Add local antarctic_plots repo in editable mode:
-
-    tried:
-    cd antarctic_plots
-    pip install -e .
-
-    need to try:
-    pip install "poetry>=1.2"
-    cd antarctic_plots
-    poetry install
-
-If `environment.yml` has been updated:
-
-    mamba activate RIS_gravity_inversion
-    conda env update --file environment.yml
+    conda activate RIS_gravity_inversion
 
 If you get an error from pyproj while using the package try:
 
@@ -42,9 +26,28 @@ If you get an error from pyproj while using the package try:
 
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
+## Initial environment creation / updating
 
-mamba create --name RIS_gravity_inversion --yes "python<3.10" "pygmt>=0.7.0" "geopandas>=0.11.0" numpy pandas snakeviz scipy matplotlib pyproj pyvista ipyvtklink harmonica verde xarray tqdm rioxarray ipykernel seaborn pip
+create the initial conda environment with the following make command:
 
+    make conda_env
+
+Export this new environment to an `environment.yml` file.
+
+    make conda_yml
+
+This will solve the dependencies of all the conda-specific packages and install them. Try to include as many packages as possible in this single conda install command. Only explicitly pin packages in this command if it's necessary, try and let conda do the work.
+
+To install a pip package, manually add it to the bottom of the yml file, like this:
+
+    - ....
+    - pip:
+        - numba-progress
+
+To update the environment, manually add any new conda or pip packages to the .yml file and run the following:
+
+    conda activate RIS_gravity_inversion
+    make conda_update
 
 ## Data sources
 
