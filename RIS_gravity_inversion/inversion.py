@@ -192,7 +192,7 @@ def import_layers(
 
     if constraints==True:
         constraints_df =  pd.read_csv(kwargs.get("constraints_points"), index_col=False)
-        mask = utils.mask_from_shp("plotting/MEaSUREs_RIS.shp", masked=True,
+        mask = utils.mask_from_shp("plotting/RIS_outline.shp", masked=True,
             invert=False, region=buffer_region, spacing=1e3)
         mask.to_netcdf('tmp_outputs/tmp_mask.nc')
         constraints_RIS_df = pygmt.select(data=constraints_df, gridmask='tmp_outputs/tmp_mask.nc',)
@@ -1500,7 +1500,7 @@ def plot_inversion_results(
                 #                 vd.maxabs(grid4)*1.5)
                 # set active layer cmap to within ice shelf extent
 
-                masked = utils.mask_from_shp("plotting/MEaSUREs_RIS.shp", xr_grid=grid2,
+                masked = utils.mask_from_shp("plotting/RIS_outline.shp", xr_grid=grid2,
                     masked=True, invert=False,)
                 percent = 2
                 topo_lims = (np.nanquantile(masked, q=percent/100),
