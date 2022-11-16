@@ -1,7 +1,13 @@
-# Build, package, test, and clean
+# install and clean
 PROJECT=RIS_gravity_inversion
 STYLE_CHECK_FILES= . #$(PROJECT)
-
+#
+#
+#
+# INSTALL
+#
+#
+#
 install:
 	mamba env create --file env/environment.yml
 
@@ -37,7 +43,6 @@ conda_yml:
 
 conda_update:
 	mamba env update --file env/environment.yml
-
 #
 #
 #

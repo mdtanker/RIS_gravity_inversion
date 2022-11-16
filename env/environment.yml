@@ -26,4 +26,3 @@ dependencies:
   - pip:
     - numba-progress
     - --editable ../../antarctic_plots
-prefix: C:\Users\matthewt\AppData\Local\miniforge3\envs\RIS_gravity_inversion

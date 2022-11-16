@@ -13,7 +13,7 @@ Install the required dependencies with either `conda` or `mamba` with the enviro
 
     cd RIS_gravity_inversion
 
-    make intall
+    make install
 
 Activate the newly created environment:
 
