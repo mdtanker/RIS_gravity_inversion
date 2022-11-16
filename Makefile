@@ -1,6 +1,6 @@
 # Build, package, test, and clean
 PROJECT=RIS_gravity_inversion
-STYLE_CHECK_FILES= $(PROJECT)
+STYLE_CHECK_FILES= . #$(PROJECT)
 
 install:
 	mamba env create --file env/environment.yml
@@ -45,15 +45,15 @@ conda_update:
 #
 #
 #
-format: isort black license-add
+format: isort black
 
-check: isort-check black-check license-check flake8
+check: isort-check black-check flake8
 
 black:
-	black $(STYLE_CHECK_FILES)
+	black --line-length 88 $(STYLE_CHECK_FILES)
 
 black-check:
-	black --check $(STYLE_CHECK_FILES)
+	black --line-length 88 --check $(STYLE_CHECK_FILES)
 
 isort:
 	isort $(STYLE_CHECK_FILES)
@@ -61,11 +61,5 @@ isort:
 isort-check:
 	isort --check $(STYLE_CHECK_FILES)
 
-license-add:
-	python tools/license_notice.py
-
-license-check:
-	python tools/license_notice.py --check
-
 flake8:
-	flake8p $(STYLE_CHECK_FILES) --exclude=*/_build/*
+	flake8p --max-line-length 88 $(STYLE_CHECK_FILES)
