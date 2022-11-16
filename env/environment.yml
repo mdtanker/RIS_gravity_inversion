@@ -11,7 +11,6 @@ dependencies:
   - snakeviz
   - scipy
   - matplotlib
-  - pyproj
   - pyvista
   - harmonica
   - verde
@@ -22,6 +21,7 @@ dependencies:
   - seaborn
   - ipyvtklink
   - ipykernel
+  - proj-data
   - pip
   - pip:
     - numba-progress

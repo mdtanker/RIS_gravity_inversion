@@ -21,7 +21,7 @@ Activate the newly created environment:
 
 If you get an error from pyproj while using the package try:
 
-    conda remove --force pyproj
+    conda remove --force pyproj -y
     pip install pyproj
 
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
