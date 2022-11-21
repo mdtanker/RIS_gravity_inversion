@@ -19,10 +19,14 @@ Activate the newly created environment:
 
     conda activate RIS_gravity_inversion
 
-If you get an error from pyproj while using the package try:
+If you get errors related to the PyProj EPSG database, try the following:
+
+    mamba install -c conda-forge proj-data --force-reinstall -y
+
+or
 
     conda remove --force pyproj -y
-    pip install pyproj
+    pip install pyproj --force-reinstall
 
 Open and work through `RIS_inversion.ipynb` to see an example of the inversion.
 
