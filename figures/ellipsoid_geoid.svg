@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="297mm"
+   height="210mm"
+   viewBox="0 0 297 210"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.2.1 (9c6d41e410, 2022-07-14)"
+   sodipodi:docname="ellipsoid_geoid.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="0.48267071"
+     inkscape:cx="523.13097"
+     inkscape:cy="484.80256"
+     inkscape:window-width="1920"
+     inkscape:window-height="1027"
+     inkscape:window-x="1912"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1">
+    <inkscape:grid
+       type="xygrid"
+       id="grid213"
+       originx="0"
+       originy="0" />
+  </sodipodi:namedview>
+  <defs
+     id="defs2">
+    <marker
+       style="overflow:visible"
+       id="Arrow2"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Arrow2"
+       markerWidth="7.6999998"
+       markerHeight="5.5999999"
+       viewBox="0 0 7.7 5.6"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.7)"
+         d="M -2,-4 9,0 -2,4 c 2,-2.33 2,-5.66 0,-8 z"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         id="arrow2L" />
+    </marker>
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1985"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1981"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1977"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1973"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1969"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1127"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1123"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1011"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1007"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="opacity:1;fill:#fefefe;fill-opacity:1;fill-rule:evenodd;stroke:#ffffff;stroke-width:1.3457;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect3010"
+       width="294.73361"
+       height="209.18323"
+       x="0.96119756"
+       y="0.43147919" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:9.49468px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;baseline-shift:baseline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="165.74582"
+       y="40.590137"
+       id="text2954-6-5"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan2952-4-0"
+         style="font-size:9.49468px;baseline-shift:baseline;stroke-width:0.445064"
+         x="165.74582"
+         y="40.590137">Z<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4715">geoid</tspan> = Z<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4707">ellipsoid </tspan>- H<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4719">geoid</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:9.49468px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;baseline-shift:baseline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="165.96063"
+       y="59.01128"
+       id="text2954-6-5-1"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan2952-4-0-5"
+         style="font-size:9.49468px;baseline-shift:baseline;stroke-width:0.445064"
+         x="165.96063"
+         y="59.01128">Z<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4763">ellipsoid</tspan> = Z<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4715-9">geoid</tspan> + H<tspan
+   style="font-size:6.17154px;baseline-shift:sub;stroke-width:0.445064"
+   id="tspan4719-8">geoid</tspan></tspan></text>
+    <path
+       style="fill:none;stroke:#0000f4;stroke-width:2.46432;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       d="M 13.318363,185.56055 C 67.184914,131.88563 164.31228,120.98764 219.67351,178.11532"
+       id="path115"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:11.8684px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#0000f4;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="240.50693"
+       y="172.26935"
+       id="text1183"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan1181"
+         style="font-size:11.8684px;fill:#0000f4;fill-opacity:1;stroke-width:0.445064"
+         x="240.50693"
+         y="172.26935">Ellipsoid</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:11.8684px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="239.32724"
+       y="155.75388"
+       id="text1237"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan1235"
+         style="font-size:11.8684px;fill:#ff0000;fill-opacity:1;stroke-width:0.445064"
+         x="239.32724"
+         y="155.75388">Geoid</tspan></text>
+    <path
+       style="fill:none;stroke:#ff0000;stroke-width:2.18677;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       d="m 9.3931259,175.62226 c 0.7518951,0 1.4995581,0 2.1514311,-0.30998 0.651873,-0.30998 1.212629,-0.93042 2.241215,-1.75814 1.028586,-0.82772 2.523905,-1.86178 3.364175,-2.58425 0.840271,-0.72246 1.027183,-1.13607 2.056133,-1.96473 1.02895,-0.82866 2.898109,-2.06954 4.021328,-2.68971 1.12322,-0.62018 1.497052,-0.62018 1.868555,-0.82675 0.371504,-0.20658 0.745345,-0.62021 1.680236,-1.44777 0.934891,-0.82757 2.430221,-2.06845 3.270768,-2.99746 0.840547,-0.92901 1.027463,-1.54945 1.216964,-1.86123 0.1895,-0.31178 0.376417,-0.31178 1.402123,-1.3456 1.025706,-1.03382 2.894863,-3.10195 3.922595,-4.3419 1.027733,-1.23996 1.214655,-1.6536 1.497664,-1.86156 0.283008,-0.20796 0.656839,-0.20796 1.870425,-0.72536 1.213586,-0.51741 3.269664,-1.55146 4.764634,-2.37859 1.49497,-0.82714 2.429536,-1.44757 3.365845,-1.75753 0.936308,-0.30997 1.870886,-0.30997 2.616687,-0.51697 0.745801,-0.20699 1.306553,-0.62062 3.271031,-0.82725 1.964479,-0.20662 5.328964,-0.20662 7.665894,0.001 2.33693,0.20763 3.645343,0.62126 4.766791,1.13916 1.121448,0.51791 2.056013,1.13834 3.92521,1.86126 1.869196,0.72292 4.672939,1.55016 6.354713,1.96302 1.681774,0.41286 2.242523,0.41286 2.520782,0.5186 0.278259,0.10575 0.278259,0.31256 0.654206,0.41362 0.375948,0.10107 1.123613,0.10107 2.245558,0.30859 1.121945,0.20752 2.617274,0.62115 3.832009,1.24295 1.214736,0.62181 2.149315,1.44906 4.205639,2.37849 2.056324,0.92943 5.233899,1.9635 7.196317,2.79189 1.962417,0.82839 2.710086,1.44882 3.364006,1.75704 0.65392,0.30822 1.21466,0.30822 2.43014,0.72301 1.21547,0.41479 3.08463,1.24204 4.57943,1.6545 1.49481,0.41246 2.61631,0.41246 3.55138,0.62072 0.93507,0.20825 1.68275,0.62189 2.99066,0.82725 1.30791,0.20537 3.17706,0.20537 4.10953,0.31111 0.93246,0.10575 0.93246,0.31257 2.80374,0.41364 1.87128,0.10107 5.6096,0.10107 10.18904,0.10107 4.57943,0 9.99998,0 13.45793,0 3.45795,0 4.95328,0 6.54105,-0.31063 1.58777,-0.31063 3.27002,-0.93107 4.29674,-1.44746 1.02672,-0.51639 1.40055,-0.93 2.42957,-1.55106 1.02903,-0.62106 2.71128,-1.44831 4.20753,-1.96523 1.49626,-0.51691 2.80467,-0.72372 3.83163,-1.03401 1.02696,-0.31029 1.77464,-0.72393 2.43033,-0.93039 0.65568,-0.20646 1.21643,-0.20646 3.36537,-0.62042 2.14894,-0.41396 5.88726,-1.24121 8.78368,-2.17191 2.89642,-0.9307 4.95249,-1.96476 8.13143,-2.48142 3.17895,-0.51666 7.47802,-0.51666 10.37574,-0.20534 2.89771,0.31131 4.39303,0.93175 5.70093,1.86366 1.3079,0.93191 2.42938,2.17277 3.36442,2.89498 0.93503,0.72222 1.68268,0.92903 2.33643,1.34428 0.65375,0.41525 1.21452,1.03569 1.6818,1.34357 0.46728,0.30787 0.84112,0.30787 1.02593,0.41361 0.1848,0.10575 0.1848,0.31257 1.58894,0.51721 1.40413,0.20463 4.20788,0.41145 7.00707,0.61793"
+       id="path1983"
+       inkscape:path-effect="#path-effect1985"
+       inkscape:original-d="m 9.3931259,175.62226 c 0.7518951,0.005 1.4995581,0.005 2.2429911,0 0.564978,-0.61574 1.125727,-1.23619 1.682244,-1.86131 1.499558,-1.02938 2.994885,-2.06343 4.48598,-3.1022 0.191147,-0.40894 0.378063,-0.82255 0.560747,-1.24086 1.873389,-1.2362 3.74255,-2.47707 5.607479,-3.72262 0.378061,0.005 0.751893,0.005 1.121494,0 0.378063,-0.40894 0.751895,-0.82258 1.121494,-1.24086 1.499559,-1.2362 2.994888,-2.47708 4.485983,-3.72263 0.191146,-0.61576 0.378063,-1.2362 0.560749,-1.86132 0.191144,0.005 0.378061,0.005 0.560747,0 1.873389,-2.06343 3.742547,-4.13155 5.607476,-6.20437 0.191147,-0.40893 0.378062,-0.82257 0.560748,-1.24087 0.378063,0.005 0.751894,0.005 1.121494,0 2.060306,-1.02937 4.116382,-2.06343 6.168225,-3.10216 0.938808,-0.61578 1.87339,-1.23619 2.803737,-1.86133 0.938811,0.005 1.873389,0.005 2.80374,0 0.564979,-0.40894 1.125728,-0.82257 1.682245,-1.24087 3.368715,0.005 6.7332,0.005 10.093457,0 1.312643,0.4183 2.621054,0.83193 3.925234,1.24087 0.938808,0.62514 1.873389,1.24555 2.803735,1.86133 2.807974,0.83191 5.611709,1.65918 8.411214,2.48173 0.564978,0.005 1.125727,0.005 1.682245,0 0.0042,0.21149 0.0042,0.4183 0,0.62043 0.751895,0.005 1.49956,0.005 2.242992,0 1.499557,0.4183 2.994881,0.83194 4.485981,1.24087 0.93881,0.83194 1.873391,1.65919 2.803737,2.48176 3.1818,1.03873 6.359371,2.07281 9.532709,3.1022 0.751897,0.6251 1.499557,1.24553 2.242997,1.86128 0.56498,0.005 1.12572,0.005 1.68224,0 1.87339,0.83194 3.74254,1.6592 5.60747,2.48175 1.12573,0.005 2.24723,0.005 3.36449,0 0.75188,0.41831 1.49957,0.83194 2.24299,1.24088 1.87339,0.005 3.74254,0.005 5.60747,0 0.005,0.21149 0.005,0.41831 0,0.62045 3.74256,0.005 7.48088,0.005 11.21496,0 5.42479,0.005 10.84534,0.005 16.26169,0 1.49955,0.005 2.99488,0.005 4.48597,0 1.68648,-0.61576 3.36873,-1.2362 5.04673,-1.86133 0.37807,-0.40893 0.7519,-0.82255 1.12151,-1.24087 1.68646,-0.82255 3.36871,-1.64982 5.04672,-2.48175 1.31264,-0.20213 2.62106,-0.40892 3.92524,-0.62041 0.75188,-0.40896 1.49956,-0.82259 2.24298,-1.24088 0.56498,0.005 1.12573,0.005 1.68225,0 3.74254,-0.82259 7.48086,-1.64982 11.21495,-2.48175 2.0603,-1.02939 4.11637,-2.06345 6.16823,-3.1022 4.3033,0.005 8.60237,0.005 12.89719,0 1.49957,0.62514 2.99489,1.24557 4.48598,1.86132 1.12575,1.24557 2.24723,2.48643 3.36451,3.72263 0.75189,0.21149 1.49954,0.41829 2.24297,0.62043 0.56498,0.6251 1.12574,1.24555 1.68225,1.8613 0.37805,0.005 0.75189,0.005 1.1215,0 0.005,0.21149 0.005,0.41831 0,0.62043 2.80795,0.21149 5.6117,0.41833 8.41121,0.62045" />
+    <ellipse
+       style="opacity:1;fill:#40fe2e;fill-opacity:1;fill-rule:evenodd;stroke:#00ff2c;stroke-width:1.12409;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="path2413"
+       inkscape:label="path2413"
+       ry="1.6263505"
+       rx="1.5724347"
+       cy="45.34346"
+       cx="120.10937" />
+    <path
+       style="fill:#fefefe;fill-opacity:1;stroke:#000000;stroke-width:1.00928;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       d="m 116.54301,45.191213 h -6.60468 v 83.306297 9.56253 l 6.87987,-0.30449"
+       id="path2727"
+       sodipodi:nodetypes="ccccc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.00928;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       d="m 116.78288,142.47511 -5.77909,0.30451 v 18.87824 l 5.50389,0.30447"
+       id="path2727-8"
+       sodipodi:nodetypes="cccc"
+       inkscape:label="path2727-8" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.00928;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       d="m 123.74271,45.038976 h 4.95351 l -1.10078,116.618894 -4.40312,-1e-5"
+       id="path2727-6"
+       sodipodi:nodetypes="cccc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:11.8684px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;baseline-shift:baseline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="73.378838"
+       y="88.69886"
+       id="text2954"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan2952"
+         style="font-size:11.8684px;baseline-shift:baseline;stroke-width:0.445064"
+         x="73.378838"
+         y="88.69886"><tspan
+           style="font-size:11.8684px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan2956">Z</tspan><tspan
+           style="font-size:7.71444px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan4148">ellipsoid</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:11.8684px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;baseline-shift:baseline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="59.976479"
+       y="163.09985"
+       id="text2954-8"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan2952-2"
+         style="font-size:11.8684px;baseline-shift:baseline;stroke-width:0.445064"
+         x="59.976479"
+         y="163.09985"><tspan
+           style="font-size:11.8684px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan2956-1">H</tspan><tspan
+           style="font-size:7.71444px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan4148-0">geoid</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:11.8684px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;baseline-shift:baseline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.445064"
+       x="138.71263"
+       y="88.995277"
+       id="text2954-2"
+       transform="scale(0.95068147,1.051877)"><tspan
+         sodipodi:role="line"
+         id="tspan2952-8"
+         style="font-size:11.8684px;baseline-shift:baseline;stroke-width:0.445064"
+         x="138.71263"
+         y="88.995277"><tspan
+           style="font-size:11.8684px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan2956-5">Z</tspan><tspan
+           style="font-size:7.71444px;baseline-shift:sub;stroke-width:0.445064"
+           id="tspan4148-3">geoid</tspan></tspan><tspan
+         sodipodi:role="line"
+         style="font-size:11.8684px;baseline-shift:baseline;stroke-width:0.445064"
+         x="138.71263"
+         y="103.83075"
+         id="tspan4187" /></text>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.672852;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#Arrow2)"
+       d="M 83.255569,165.18837 106.81048,152.60658"
+       id="path4254" />
+  </g>
+</svg>

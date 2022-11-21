@@ -1,17 +1,28 @@
-bathymetry_data/BedMachineAntarctica_2020-07-15_v02.nc
-bathymetry_data/bedmachine_RIGGS.csv
-bathymetry_data/bedmap_all.txt 
-bathymetry_data/bedmap2_bed.nc
-inversion_layers/constraints_xy.txt 
+# output results
+results/*
+!results/.gitkeep
 
+# inversion layers
+inversion_layers/*
+!inversion_layers/.gitkeep
+
+# temp files
 tmp_outputs/*
-!tmp_outputs/.gitkeep 
+!tmp_outputs/.gitkeep
 
 # Compiled python modules.
-*.pyc
+**/*.pyc
+**/__pycache__/
+__pycache__/
+
+# Jupyter checkpoints
+/.ipynb_checkpoints/
 
 # Setuptools distribution folder
 /dist/
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info
+
+# vs code
+.vscode/
