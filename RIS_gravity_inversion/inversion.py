@@ -12,7 +12,7 @@ import pyvista as pv
 import seaborn as sns
 import verde as vd
 import xarray as xr
-from antarctic_plots import maps, utils
+from antarctic_plots import maps, utils, fetch, profile
 from scipy.sparse.linalg import lsqr
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
@@ -20,59 +20,28 @@ warnings.filterwarnings("ignore", message="pandas.Float64Index")
 
 
 def import_layers(
-    layers_list,
-    spacing_list,
-    rho_list,
-    fname_list,
-    grav_spacing,
-    active_layer,
-    buffer_region,
-    inversion_region,
-    grav_file,
-    constraints=False,
-    plot=True,
+    layers_list : list,
+    spacing_list : list,
+    rho_list : list,
+    fname_list: list,
+    grav_spacing : float,
+    active_layer : str,
+    buffer_region : list,
+    inversion_region : list,
+    grav_file : str,
+    plot : bool =True,
     **kwargs,
 ):
     """
-    Import layers, files, and their properties to prep for gravity inversion.
-
-    Parameters
-    ----------
-    layers_list : list
-        _description_
-    spacing_list : list
-        _description_
-    rho_list : list
-        _description_
-    fname_list : list
-        grids should be netcdf, tiff's might work. Should be pixel registered.
-    grav_spacing : int
-        _description_
-    active_layer : str
-        _description_
-    buffer_region : np.ndarray
-        _description_
-    inversion_region : np.ndarray
-        _description_
-    grav_file : str
-        _description_
-    constraints : bool, optional
-        Choose whether to process constraints grid and df, by default False
-    plot : bool, optional
-        choose whether to plot layers or not, by default True
+    Read zarrs and csvs, resample/rename to be uniform, and add to layers dictionary
 
     Other Parameters
     ----------------
     **kwargs: dict
-        plot_region: np.ndarray or str
-            region to plot for 2d or 3d plots, by default is inversion_region
-        constraints_file: str
-            .nc file of a constraints grid, 0-1.
-         constraints_points: str
+        constraint_grid: str
+            .nc file of a constraint grid, 0-1.
+         constraint_points: str
             .csv file with position of constraints
-        plot_type: str
-            choose method of plotting; either "xarray" or "pygmt", by default is
-            "xarray"
         power_spectrum: bool
             choose to plot radially average power spectrum of layers, by defaul is False
     Returns
@@ -80,67 +49,93 @@ def import_layers(
     tuple
         layers (dict),
         grav (pd.DataFrame),
-        constraints_df (pd.DataFrame),
-        constraints_RIS_df (pd.DataFrame)
+        constraint_grid (xr.DataArray),
+        constraint_points (pd.DataFrame),
+        constraint_points_RIS (pd.DataFrame)
     """
+
+    constraint_points = kwargs.get("constraint_points", None)
+    constraint_grid = kwargs.get("constraint_grid", None)
+
+    input_grav_name = kwargs.get("input_grav_name", "gravity_disturbance")
+    input_obs_height_name = kwargs.get("input_obs_height_name", "ellipsoidal_elevation")
+
     layers_list = pd.Series(layers_list)
     spacing_list = pd.Series(spacing_list)
     rho_list = pd.Series(rho_list)
     fname_list = pd.Series(fname_list)
 
-    if grav_file[-3:] == ".nc":
-        # read and resample gravity grid
-        filt_grav = pygmt.grdfilter(
-            grid=grav_file,
-            filter=f"g{grav_spacing}",
-            distance="0",
-            # nans='r', # retains NaNs
-            registration="p",
-            verbose="q",
-        )
-        grav = pygmt.grdsample(
-            grid=filt_grav,
-            region=inversion_region,
-            registration="p",
-            spacing=grav_spacing,
-            verbose="q",
-        ).to_dataset(name="Gobs")
-        # center on 0
-        grav["Gobs"] -= grav.Gobs.mean().item()
-        """
-        below line makes it so grav is calculated in entire grid domain
-        if dont want that, set to:
-        grav['z'] = (grav.Gobs*0) + 1e3
-        """
-        grav["z"] = xr.ones_like(grav.Gobs) + 1e3
-        grav.to_netcdf("tmp_outputs/tmp_grav.nc")
-        grav = xr.load_dataset("tmp_outputs/tmp_grav.nc")
+    # read gravity csv file
+    df = pd.read_csv(
+        grav_file,
+        sep=",",
+        header="infer",
+        index_col=None,
+        compression="gzip",
+    )
 
-    if grav_file[-3:] == "csv":
-        # read file
-        df = pd.read_csv(grav_file, index_col=False)
-        # block reduce
+    # remove other columns
+    df = df[['x','y', input_grav_name, input_obs_height_name]]
+
+    # get number of grav points before reduction
+
+    prior_len = len(df[input_grav_name])
+    # block reduce gravity data
+    if kwargs.get("block_reduction", None) is None:
+        grav = df.copy()
+    elif kwargs.get("block_reduction", None) == "pygmt":
         grav = pygmt.blockmedian(
-            df[["x", "y", "Gobs"]],
+            df[["x", "y", input_grav_name]],
             spacing=grav_spacing,
             region=inversion_region,
             registration="p",
         )
-        grav["z"] = pygmt.blockmedian(
-            df[["x", "y", "z"]],
+        grav[input_obs_height_name] = pygmt.blockmedian(
+            df[["x", "y", input_obs_height_name]],
             spacing=grav_spacing,
             region=inversion_region,
             registration="p",
-        ).z
-        # with Verde
-        # reducer_mean = vd.BlockReduce(reduction=np.mean, spacing=grav_spacing/2,
-        #     center_coordinates=False)
-        # coordinates, data = reducer_mean.filter(
-        #     coordinates=(df.x, df.y), data=(df.Gobs, df.z))
-        # blocked = pd.DataFrame(data={'x': coordinates[0], 'y':coordinates[1],
-        #     'Gobs':data[0], 'z':data[1]})
-        # grav = blocked[vd.inside((blocked.x, blocked.y), inversion_region)].copy()
-        grav["Gobs"] -= grav.Gobs.mean()
+        )[input_obs_height_name]
+    elif kwargs.get("block_reduction", None) == "verde":
+        reducer_mean = vd.BlockReduce(
+            reduction=np.median,
+            spacing=grav_spacing,
+            center_coordinates=False,
+            adjust='region',
+            )
+        coordinates, data = reducer_mean.filter(
+            coordinates=(df.x, df.y),
+            data=(
+                df[input_grav_name],
+                df[input_obs_height_name],
+                ),
+            )
+        blocked = pd.DataFrame(
+            data={
+                'x': coordinates[0],
+                'y':coordinates[1],
+                input_grav_name:data[0],
+                input_obs_height_name:data[1],
+                },
+            )
+        grav = blocked[vd.inside((blocked.x, blocked.y), inversion_region)].copy()
+
+    post_len = len(grav[input_grav_name])
+
+    if kwargs.get("block_reduction", None) is None:
+        print(f"{prior_len} gravity observation points")
+    else:
+        print(f"Block-reduced the gravity data at {int(grav_spacing)}m spacing")
+        print(f"from {prior_len} points to {post_len} points")
+
+    # center gravity around 0
+    grav[input_grav_name] -= grav[input_grav_name].mean()
+
+    # set standard names
+    grav.rename(
+        columns={input_grav_name:"Gobs", input_obs_height_name:"z"},
+        inplace=True,
+        )
 
     # make nested dictionary for layers and properties
     layers = {
@@ -150,251 +145,109 @@ def import_layers(
 
     # read and resample layer grids, convert to dataframes
     for k, v in layers.items():
-        if int(v["spacing"]) > int(
-            pygmt.grdinfo(v["fname"], per_column=True, o=7)[:-1]
-        ):
-            print(
-                f"filtering and resampling {k} from",
-                f"{int(pygmt.grdinfo(v['fname'], per_column=True, o=7)[:-1])}m",
-                f"to {int(v['spacing'])}m",
-            )
-            v["grid"] = pygmt.grdfilter(
-                grid=v["fname"],
-                region=buffer_region,
-                registration="p",
-                spacing=v["spacing"],
-                filter=f"g{v['spacing']}",
-                distance="0",
-                verbose="q",
-            )
-            if constraints is True:
-                # read and resample constraints grid, and mask outside of RIS
-                constraints_grid = pygmt.grdfilter(
-                    grid=kwargs.get("constraints_file"),
-                    region=buffer_region,
-                    registration="p",
-                    spacing=spacing_list[
-                        layers_list[layers_list == active_layer].index[0]
-                    ],
-                    filter=f"g{spacing_list[layers_list[layers_list == active_layer].index[0]]}",  # noqa
-                    distance="0",
-                    verbose="q",
-                )
-        else:
-            print(
-                f"resampling {k} from",
-                f"{int(pygmt.grdinfo(v['fname'], per_column=True, o=7)[:-1])}m",
-                f"to {int(v['spacing'])}m",
-            )
-            v["grid"] = pygmt.grdsample(
-                grid=v["fname"],
-                region=buffer_region,
-                registration="p",
-                spacing=v["spacing"],
-                verbose="q",
-            )
-            if constraints is True:
-                # read and resample constraints grid, and mask outside of RIS
-                constraints_grid = pygmt.grdsample(
-                    grid=kwargs.get("constraints_file"),
-                    region=buffer_region,
-                    registration="p",
-                    spacing=spacing_list[
-                        layers_list[layers_list == active_layer].index[0]
-                    ],
-                    verbose="q",
-                )
+        tmp_grid = xr.open_zarr(v["fname"]).to_array().squeeze()
+        print(f"\n{'':*<20}Resampling {k} layer {'':*>20}")
+        v["grid"] = fetch.resample_grid(
+            tmp_grid,
+            spacing=v["spacing"],
+            region=buffer_region,
+            registration=kwargs.get("registration", "p"),
+            verbose="q",
+        )
+
+        # print spacing, region, max,min, and registration of layers
+        print(f"{k} info: {utils.get_grid_info(v['grid'])}")
 
         v["df"] = v["grid"].to_dataframe().reset_index()
         v["df"]["rho"] = v["rho"]
         v["df"].dropna(how="any", inplace=True)
         v["len"] = len(v["df"].x)
 
-    if constraints is True:
-        constraints_df = pd.read_csv(kwargs.get("constraints_points"), index_col=False)
-        mask = utils.mask_from_shp(
-            "plotting/RIS_outline.shp",
-            masked=True,
-            invert=False,
+    if constraint_grid is not None:
+        # open zarr file
+        tmp_grid = xr.open_zarr(constraint_grid).to_array().squeeze()
+        # resample constraint grid
+        print(f"\n{'':*<20}Resampling constraints grid {'':*>20}")
+        constraint_grid = fetch.resample_grid(
+            tmp_grid,
+            spacing=layers[active_layer]["spacing"],
             region=buffer_region,
-            spacing=1e3,
+            registration=kwargs.get("registration", "p"),
+            verbose="q",
         )
-        mask.to_netcdf("tmp_outputs/tmp_mask.nc")
-        constraints_RIS_df = pygmt.select(
-            data=constraints_df,
-            gridmask="tmp_outputs/tmp_mask.nc",
+        # print spacing, region, max,min, and registration of constraint grid
+        print(f"constraint grid: {utils.get_grid_info(constraint_grid)}")
+
+    if constraint_points is not None:
+        # load constraint points into a dataframe, and create a subset within region
+        constraint_points_all = pd.read_csv(
+            constraint_points,
+            sep=",",
+            header="infer",
+            index_col=None,
+            compression="gzip",
         )
 
-    # print lengths
-    for k, v in layers.items():
-        print(
-            f"{k}: {v['len']} points, elevations:"
-            f"{int(np.nanmax(v['grid']))}m to {int(np.nanmin(v['grid']))}m"
+        constraint_points = utils.points_inside_region(
+            constraint_points_all,
+            inversion_region,
         )
 
-    if grav_file[-3:] == "csv":
-        print(f"gravity: {len(grav)} points")
-        print(f"gravity avg. elevation: {int(grav.z.max())}")
-    elif grav_file[-3:] == ".nc":
-        print(f"gravity: {len(vd.grid_to_table(grav.Gobs))} points")
-        print(f"gravity avg. elevation: {int(np.nanmax(grav.z))}")
+        # additional subset within RIS polygon
+        # mask = utils.mask_from_shp(
+        #     "plotting/RIS_outline.shp",
+        #     masked=True,
+        #     invert=False,
+        #     region=buffer_region,
+        #     spacing=1e3,
+        # )
+        # mask.to_netcdf("tmp_outputs/tmp_mask.nc")
 
-    if constraints is True:
-        print(f"bathymetry control points:{len(constraints_df)}")
-
-    if plot is True:
-        if grav_file[-3:] == "csv":
-            grav_grid = pygmt.xyz2grd(
-                data=grav,
-                region=inversion_region,
-                spacing=grav_spacing,
-                registration="p",
-            )
-        elif grav_file[-3:] == ".nc":
-            grav_grid = grav.Gobs
-
-        if kwargs.get("plot_type", "xarray") == "pygmt":
-            fig = maps.plot_grd(
-                grid=grav_grid,
-                cmap="jet",
-                plot_region=kwargs.get("plot_region", inversion_region),
-                coast=True,
-                # grd2cpt = True,
-                cbar_label="observed gravity (mGal)",
-                # points = constraints_df,
-                show_region=inversion_region,
-                scalebar=True,
-            )
-
-            for i, (k, v) in enumerate(layers.items()):
-                fig = maps.plot_grd(
-                    grid=layers[k]["grid"],
-                    cmap="viridis",
-                    plot_region=kwargs.get("plot_region", inversion_region),
-                    coast=True,
-                    grd2cpt=True,
-                    cbar_label=f"{k} elevation (m)",
-                    origin_shift="xshift",
-                    fig=fig,
-                    show_region=inversion_region,
-                )
-            fig.show()
-
-        elif kwargs.get("plot_type", "xarray") == "xarray":
-            if constraints is True:
-                extra = 2
-            else:
-                extra = 1
-            fig, ax = plt.subplots(ncols=len(layers) + extra, nrows=1, figsize=(20, 20))
-            p = 0
-            grav_grid.plot(
-                ax=ax[p],
-                robust=True,
-                cmap="RdBu_r",
-                cbar_kwargs={"orientation": "horizontal", "anchor": (1, 1.8)},
-            )
-            ax[p].set_title("Observed gravity")
-            p += 1
-            if constraints is True:
-                constr = (
-                    constraints_grid.rio.set_spatial_dims("x", "y")
-                    .rio.write_crs("epsg:3031")
-                    .rio.clip_box(
-                        minx=inversion_region[0],
-                        maxx=inversion_region[1],
-                        miny=inversion_region[2],
-                        maxy=inversion_region[3],
-                    )
-                )
-                constr.plot(
-                    ax=ax[p],
-                    robust=True,
-                    cmap="copper",
-                    cbar_kwargs={"orientation": "horizontal", "anchor": (1, 1.8)},
-                )
-                ax[p].set_title("Constraints grid")
-            for i, j in enumerate(layers):
-                grid = (
-                    layers[j]["grid"]
-                    .rio.set_spatial_dims("x", "y")
-                    .rio.write_crs("epsg:3031")
-                    .rio.clip_box(
-                        minx=kwargs.get("plot_region", inversion_region)[0],
-                        maxx=kwargs.get("plot_region", inversion_region)[1],
-                        miny=kwargs.get("plot_region", inversion_region)[2],
-                        maxy=kwargs.get("plot_region", inversion_region)[3],
-                    )
-                )
-                percent = 1
-                lims = (
-                    np.nanquantile(grid, q=percent / 100),
-                    np.nanquantile(grid, q=1 - (percent / 100)),
-                )
-                grid.plot(
-                    ax=ax[i + extra],
-                    vmin=lims[0],
-                    vmax=lims[1],
-                    cmap="gist_earth",
-                    cbar_kwargs={"orientation": "horizontal", "anchor": (1, 1.8)},
-                )
-                ax[i + extra].set_title(f"{j} elevation")
-                if constraints is True:
-                    if j == active_layer:
-                        ax[i + extra].plot(
-                            constraints_RIS_df.x,
-                            constraints_RIS_df.y,
-                            "rx",
-                            markersize=1,
-                            markeredgewidth=0.75,
-                        )
-                ax[i + extra].add_patch(
-                    mpl.patches.Rectangle(
-                        xy=(inversion_region[0], inversion_region[2]),
-                        width=(inversion_region[1] - inversion_region[0]),
-                        height=(inversion_region[3] - inversion_region[2]),
-                        linewidth=1,
-                        fill=False,
-                    )
-                )
-            for a in ax:
-                a.set_xticklabels([])
-                a.set_yticklabels([])
-                a.set_xlabel("")
-                a.set_ylabel("")
-                a.set_aspect("equal")
-    if kwargs.get("power_spectrum", False) is True:
-        names = []
-        grids = []
-        for k, v in layers.items():
-            names.append(k)
-            grids.append(v["grid"])
-        names.append("observed_gravity")
-        grids.append(grav_grid)
-        utils.raps(grids, names, plot_type="pygmt")
-
-    if constraints is True:
-        return (
-            layers,
-            grav.astype(np.float64),
-            grav_spacing,
-            constraints_grid,
-            constraints_df,
-            constraints_RIS_df,
+        constraint_points_RIS = pygmt.select(
+            data=constraint_points,
+            # gridmask="tmp_outputs/tmp_mask.nc",
+            F="plotting/RIS_outline.shp",
+            coltypes="o",
         )
-    else:
-        return (layers, grav.astype(np.float64), grav_spacing, None, None)
+
+        # constraint_points_RIS = constraint_points_RIS.astype(np.float64)
+
+    print(f"gravity: {len(grav)} points")
+    print(f"gravity avg. elevation: {int(np.nanmean(grav.z))}")
+
+    if constraint_points is not None:
+        print(f"bathymetry control points:{len(constraint_points)}")
+        print(f"bathymetry control points within RIS:{len(constraint_points_RIS)}")
+
+    grav.Gobs = grav.Gobs.astype(np.float64)
+    grav.z = grav.z.astype(np.float64)
+    grav.x = grav.x.astype(np.float64)
+    grav.y = grav.y.astype(np.float64)
+
+    outputs = [
+        layers,
+        grav,
+        None,
+        None,
+        None
+        ]
+
+    if constraint_grid is not None:
+        outputs[2]=constraint_grid
+    if constraint_points is not None:
+        outputs[3]=constraint_points
+        outputs[4]=constraint_points_RIS
+
+    return outputs
 
 
 def grids_to_prism_layers(
     layers: dict,
-    buffer_region: Union[str, np.ndarray] = None,
-    plot_region: Union[str, np.ndarray] = None,
-    plot: bool = False,
+    thickness_threshold : float = 1,
     **kwargs,
 ):
     """
-    Turn nested dictionary of grids into series of vertical prisms between each layer
-    and plot in either 3D or as 2D as prism thickness.
+    Turn nested dictionary of grids into series of vertical prisms between each layer.
 
     Parameters
     ----------
@@ -405,41 +258,13 @@ def grids_to_prism_layers(
             'rho': int, float; constant density value for layer
             'grid': xarray.DataArray;
             'df': pandas.DataFrame; 2d representation of grid
-    buffer_region : Union[str, np.ndarray], optional
-        region including buffer zone, by default reads region from first grid layer
-    plot_region : Union[str, np.ndarray], optional
-        GMT-format region to plot for both 2d and 3d plots, by default is buffer region
-    plot : bool, optional
-        choose whether to plot results, by default False
 
-    Other Parameters
-    ----------------
-    **kwargs : dict
-        layers_for_3d: list
-            list of layers to include in 3D plot, by default is all layers.
-        clip_cube: bool
-            choose to clip out cube of 3D plot, by default is True.
-        plot_type : str, optional
-            choose between plotting prism layers in '2D' or '3D', by default '3D'.
-        inversion_region: : Union[str, np.ndarray], optional
-            inner inversion region, used to plot polygon
+    thickness_threshold : float, optional
+        remove prisms with thickness less than this threshold, in meters, by default 1
+
     """
-    plot_type = kwargs.get("plot_type", "3D")
-    inversion_region = kwargs.get("inversion_region", None)
-    # buffer region defaults to first layer extent
-    if buffer_region is None:
-        buffer_region = [
-            int(
-                pygmt.grdinfo(list(layers.values())[0]["grid"], per_column="n", o=i)[
-                    :-1
-                ]
-            )
-            for i in range(4)
-        ]
-
-    # plot region defaults to buffer region
-    if plot_region is None:
-        plot_region = buffer_region
+    # buffer region defaults to first layer's extent
+    buffer_region = utils.get_grid_info(list(layers.values())[0]["grid"])[1]
 
     # add density variable to datasets
     for k, v in layers.items():
@@ -452,21 +277,30 @@ def grids_to_prism_layers(
 
     # create prisms layers from input grids
     for i, j in enumerate(reversed_layers_list):
+        # bottom-most prism layer
         if i == 0:
+            # tops of prisms are from current grid
+            surface=layers[j]["grid"]
+            # base of prisms
+            # reference=-50e3,
+            reference=np.nanmin(layers[j]["grid"].values)
             layers[j]["prisms"] = hm.prism_layer(
                 coordinates=(layers[j]["grid"].x.values, layers[j]["grid"].y.values),
-                surface=layers[j]["grid"],
-                # reference=-50e3,
-                reference=np.nanmin(layers[j]["grid"].values),  # bottom of prisms is
-                # the deepest depth
-                properties={"density": layers[j]["grid"].density},
+                surface=surface,
+                reference=reference,
+                properties={
+                    "density": layers[j]["grid"].density,
+                    "thickness": surface-reference,
+                    },
             )
             print(
-                f'{j} top: {int(np.nanmean(layers[j]["prisms"].top.values))}m and '
-                f'bottom: {int(np.nanmean(layers[j]["prisms"].bottom.values))}m'
+                f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}m"
+                f" and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}m "
+                f"{'':*>10}"
             )
+        # 2nd to bottom layer, moving upwards to surface layer
         else:
-            # if spacing of layer doesn't match below layer's spacing, sample lower
+            # if spacing of current layer doesn't match below layer's spacing, sample lower
             # layer to get values for bottoms of prisms.
             if (
                 layers[j]["spacing"]
@@ -495,129 +329,100 @@ def grids_to_prism_layers(
                     registration="p",
                     spacing=layers[j]["spacing"],
                 )
-
+                surface=layers[j]["grid"]
+                reference=tmp_grd
                 layers[j]["prisms"] = hm.prism_layer(
                     coordinates=(
                         layers[j]["grid"].x.values,
                         layers[j]["grid"].y.values,
                     ),
-                    surface=layers[j]["grid"],
-                    reference=tmp_grd,
-                    properties={"density": layers[j]["grid"].density},
+                    surface=surface,
+                    reference=reference,
+                    properties={
+                        "density": layers[j]["grid"].density,
+                        "thickness": surface-reference,
+                        },
                 )
                 print(
-                    f'{j} top: {int(np.nanmean(layers[j]["prisms"].top.values))}m and'
-                    f' bottom: {int(np.nanmean(layers[j]["prisms"].bottom.values))}m'
+                    f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}" #noqa
+                    f"m and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}" #noqa
+                    f"m {'':*>10}\n"
                 )
             else:
+                surface = layers[j]["grid"]
+                reference = layers[reversed_layers_list.iloc[i - 1]]["grid"]
                 layers[j]["prisms"] = hm.prism_layer(
                     coordinates=(
                         layers[j]["grid"].x.values,
                         layers[j]["grid"].y.values,
                     ),
-                    surface=layers[j]["grid"],
-                    reference=layers[reversed_layers_list.iloc[i - 1]]["grid"],
-                    properties={"density": layers[j]["grid"].density},
+                    surface=surface,
+                    reference=reference,
+                    properties={
+                        "density": layers[j]["grid"].density,
+                        "thickness": surface-reference,
+                        },
                 )
                 print(
-                    f'{j} top: {int(np.nanmean(layers[j]["prisms"].top.values))}m and'
-                    f' bottom: {int(np.nanmean(layers[j]["prisms"].bottom.values))}m'
+                    f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}" #noqa
+                    f"m and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}" #noqa
+                    f"m {'':*>10}\n"
                 )
 
-    if plot is True:
-        if plot_type == "3D":
-            # plot prisms layers in 3D with pyvista
-            plotter = pv.Plotter(lighting="three_lights", window_size=(5000, 5000))
-            colors = ["lavender", "aqua", "goldenrod", "saddlebrown", "black"]
-            for i, j in enumerate(
-                kwargs.get("layers_for_3d", pd.Series([k for k, v in layers.items()]))
-            ):
-                prisms = (
-                    layers[j]["prisms"]
-                    .rio.set_spatial_dims("easting", "northing")
-                    .rio.write_crs("epsg:3031")
-                    .rio.clip_box(
-                        minx=plot_region[0],
-                        maxx=plot_region[1],
-                        miny=plot_region[2],
-                        maxy=plot_region[3],
-                    )
-                )
-                layers[j]["pvprisms"] = prisms.prism_layer.to_pyvista()
-                if kwargs.get("clip_cube", True) is True:
-                    # to clip out a cube
-                    bounds = [
-                        plot_region[0],
-                        plot_region[0] + ((plot_region[1] - plot_region[0]) / 2),
-                        plot_region[2],
-                        plot_region[2] + ((plot_region[3] - plot_region[2]) / 2),
-                        -50e3,
-                        1e3,
-                    ]
-                    layers[j]["pvprisms"] = layers[j]["pvprisms"].clip_box(
-                        bounds, invert=True
-                    )
-                plotter.add_mesh(
-                    layers[j]["pvprisms"],
-                    color=colors[i],
-                    # scalars="density", cmap='viridis', flip_scalars=True,
-                    # smooth_shading=True, style='points', point_size=2,
-                    # show_edges=False, # for just plotting surfaces
-                    smooth_shading=True,
-                    style="surface",
-                    show_edges=False,
-                )
-            plotter.set_scale(zscale=20)  # exaggerate the vertical coordinate
-            plotter.camera_position = "xz"
-            plotter.camera.elevation = 20
-            plotter.camera.azimuth = -25
-            plotter.camera.zoom(1)
-            plotter.show_axes()
-            plotter.show()
-        elif plot_type == "2D":
-            for i, j in enumerate(layers):
-                if i == 0:
-                    fig, ax = plt.subplots(ncols=len(layers), nrows=1, figsize=(20, 20))
-                thick = layers[j]["prisms"].top - layers[j]["prisms"].bottom
-                thick = (
-                    thick.rio.set_spatial_dims("easting", "northing")
-                    .rio.write_crs("epsg:3031")
-                    .rio.clip_box(
-                        minx=plot_region[0],
-                        maxx=plot_region[1],
-                        miny=plot_region[2],
-                        maxy=plot_region[3],
-                    )
-                )
-                thick.plot(
-                    ax=ax[i],
-                    robust=True,
-                    cmap="viridis",
-                    cbar_kwargs={"orientation": "horizontal", "anchor": (1, 1.8)},
-                )
-                ax[i].set_title(f"{j} prism thickness")
-            for a in ax:
-                if inversion_region is not None:
-                    a.add_patch(
-                        mpl.patches.Rectangle(
-                            xy=(inversion_region[0], inversion_region[2]),
-                            width=(inversion_region[1] - inversion_region[0]),
-                            height=(inversion_region[3] - inversion_region[2]),
-                            linewidth=1,
-                            fill=False,
-                        )
-                    )
-                a.set_xticklabels([])
-                a.set_yticklabels([])
-                a.set_xlabel("")
-                a.set_ylabel("")
-                a.set_aspect("equal")
+    # # drop prisms with thicknesses < threshold
+    # total_before = []
+    # total_after = []
 
+    # for k, v in layers.items():
+    #     print(f"\n{'':*<10}{k} layer{'':*>10}")
+
+    #     # get number of prisms
+    #     before = np.count_nonzero(~np.isnan(v['prisms'].thickness.values))
+
+    #     # drop prisms
+    #     v['prisms'] = drop_thin_prisms(v['prisms'], thickness_threshold)
+
+    #     # get number of prisms
+    #     after = np.count_nonzero(~np.isnan(v['prisms'].thickness.values))
+
+    #     total_before.append(before)
+    #     total_after.append(after)
+
+    # print(f"\ntotal number of prisms: {sum(total_before)}")
+    # print(f"prisms with thickness > {thickness_threshold}m: {sum(total_after)}")
+
+
+def drop_thin_prisms(
+    prism_layer : xr.Dataset,
+    threshold : float = 1,
+):
+    # get number of prisms
+    num_before = np.count_nonzero(~np.isnan(prism_layer.thickness.values))
+
+    # prism_layer=prism_layer.where(
+    #         prism_layer.thickness >= threshold,
+    #         )
+    # drop prisms with thicknesses < threshold
+    for k in list(prism_layer.variables):
+        if k in ('easting', 'northing'):
+            pass
+        else:
+            prism_layer[k]=prism_layer[k].where(
+                prism_layer.thickness >= threshold,
+                )
+
+    # get number of prisms
+    num_after = np.count_nonzero(~np.isnan(prism_layer.thickness.values))
+
+    print(f"removed {num_before-num_after} prisms with thickness < {threshold}.")
+
+    return prism_layer
 
 def forward_grav_layers(
     layers: dict,
-    gravity: Union[pd.DataFrame or xr.Dataset],
-    exclude_layers: list,
+    gravity: pd.DataFrame,
+    exclude_layers: list = None,
+    **kwargs,
 ):
     """
     Calculate forward gravity of layers of prisms.
@@ -631,9 +436,9 @@ def forward_grav_layers(
             'rho': int, float; constant density value for layer
             'grid': xarray.DataArray;
             'df': pandas.DataFrame; 2d representation of grid
-    gravity : Union[pd.DataFrame or xr.Dataset]
+    gravity : pd.DataFrame
         locations to calculate forward gravity at. needs variables 'x', 'y', and 'z'.
-    exclude_layers : list
+    exclude_layers : list, optional
         list of layers to exclude from total forward gravity, useful if applying a
         Bouguer correction with a layer's calculated forward gravity
 
@@ -644,30 +449,30 @@ def forward_grav_layers(
         layers
     """
 
-    # Convert supplied gravity data into a dataframe
-    if isinstance(gravity, pd.DataFrame):
-        print("using supplied DataFrame for observation points")
-        df_forward = gravity.copy()
-    elif isinstance(gravity, xr.Dataset):
-        print("converting 'gravity' from xr.Dataset to pd.DataFrame")
-        df_forward = vd.grid_to_table(gravity)  # .dropna(subset='Gobs')
-    else:
-        raise TypeError("parameter 'gravity' should be a pd.DataFrame or xr.Dataset")
+    df_forward = gravity.copy()
 
     # calculate forward gravity of each layer of prisms
     for k, v in layers.items():
         df_forward[f"{k}_forward_grav"] = v["prisms"].prism_layer.gravity(
-            coordinates=(df_forward.x, df_forward.y, df_forward.z), field="g_z"
+            coordinates=(df_forward.x, df_forward.y, df_forward.z),
+            field="g_z",
+            progressbar=kwargs.get("progressbar", True),
+            density_name='density',
+            parallel=kwargs.get("parallel", True),
         )
         # subtract mean from each layer
         df_forward[f"{k}_forward_grav"] -= df_forward[f"{k}_forward_grav"].mean()
-        print(f"{len(v['prisms'].to_dataframe().reset_index())} prisms in {k} layer")
+        prism_count = np.count_nonzero(~np.isnan(v['prisms'].thickness.values))
+        print(f"{prism_count} prisms in {k} layer")
         print(f"finished {k} layer")
 
     # make list of layers to include (not layers used in Bouguer correction)
-    include_forward_layers = pd.Series(
-        [k for k, v in layers.items() if k not in exclude_layers]
-    )
+    if exclude_layers is not None:
+        include_forward_layers = pd.Series(
+            [k for k, v in layers.items() if k not in exclude_layers]
+        )
+    else:
+        include_forward_layers = pd.Series(k for k,v in layers.items())
 
     # add gravity effects of all input layers
     grav_layers_list = [f"{i}_forward_grav" for i in include_forward_layers]
@@ -681,6 +486,7 @@ def anomalies(
     input_grav: pd.DataFrame,
     grav_spacing: int,
     regional_method: str,
+    crs: str ='3031',
     **kwargs,
 ):
     """
@@ -706,6 +512,9 @@ def anomalies(
         spacing of gravity data, to use for make misfit grid and plotting
     regional_method : {'trend', 'filter', 'constraints', 'eq_sources'}
         choose a method to determine the regional gravity misfit.
+    crs: str, optional
+            if fill_method = 'rioxarray', set the coordinate reference system to be used
+            in rioxarray, by default "3031"
 
     Other Parameters
     ----------------
@@ -731,9 +540,6 @@ def anomalies(
             regional misfit if regional_method = 'constraints'.
         fill_method" {'pygmt', 'rioxarray'},
             Choose method to fill nans, by default is 'pygmt'
-        crs: str,
-            if fill_method = 'rioxarray', set the coordinate reference system to be used
-            in rioxarray.
     Returns
     -------
     pd.DataFrame
@@ -768,14 +574,20 @@ def anomalies(
     # get kwargs associated with the various methods
     trend = kwargs.get("trend", None)
     filter = kwargs.get("filter", None)
-    constraints = kwargs.get("constraints", None)
+    df = kwargs.get("constraints", None)
+    if df is not None:
+        constraints = df.copy()
     eq_sources = kwargs.get("eq_sources", None)
 
     crs = kwargs.get("crs", None)
     fill_method = kwargs.get("fill_method", "pygmt")
 
-    if fill_method == "rioxarray" and crs is None:
-        raise ValueError(f"Must provide 'crs' if fill_method = {fill_method}.")
+    # if fill_method == "rioxarray" and crs is None:
+    if crs is None:
+        # raise ValueError(
+        print(
+            f"'crs' not provided for rioxarray fill_method, defaulting to EPSG:3031\n")
+        crs=3031
 
     anomalies = input_grav.copy()
 
@@ -802,24 +614,27 @@ def anomalies(
     # get obs-forward misfit
     anomalies["misfit"] = anomalies.grav_corrected - anomalies[input_forward_column]
 
-    # fill misfit nans with 1 of 2 methods
-    if fill_method == "pygmt":
-        """option 1) with pygmt.grdfill(), needs grav_spacing and inversion_region"""
-        misfit = pygmt.xyz2grd(
-            data=anomalies[["x", "y", "misfit"]],
-            region=inversion_region,
-            spacing=grav_spacing,
-            registration="p",
-        )
-        misfit_filled = pygmt.grdfill(misfit, mode="n")
-    elif fill_method == "rioxarray":
-        """option 1) with rio.interpolate(), needs crs set."""
-        misfit = anomalies.set_index(["y", "x"]).to_xarray().misfit.rio.write_crs(crs)
-        misfit_filled = misfit.rio.write_nodata(np.nan).rio.interpolate_na()
+    # grid the misfits, used in trend, filter, and constraints, not in Eq. Sources
+    misfit = pygmt.xyz2grd(
+                data=anomalies[["x", "y", "misfit"]],
+                region=inversion_region,
+                spacing=grav_spacing,
+                registration="p",
+            )
 
     # Trend method
     if regional_method == "trend":
+        # fill misfit nans with 1 of 2 methods
+        if fill_method == "pygmt":
+            """option 1) with pygmt.grdfill(), needs grav_spacing and inversion_region"""
+            misfit_filled = pygmt.grdfill(misfit, mode="n")
+        elif fill_method == "rioxarray":
+            """option 1) with rio.interpolate(), needs crs set."""
+            # misfit = misfit.rio.write_crs(crs) # noqa
+            misfit_filled = misfit.rio.write_nodata(np.nan).rio.interpolate_na().rename('z') # noqa
+
         df = vd.grid_to_table(misfit_filled).astype("float64")
+
         trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.z)
         anomalies["reg"] = trend.predict((anomalies.x, anomalies.y))
         anomalies["res"] = anomalies.misfit - anomalies.reg
@@ -841,40 +656,38 @@ def anomalies(
     # Constraints method
     elif regional_method == "constraints":
         # sample observed-forward misfit at constraint points
-        tmp_regrid = pygmt.grdtrack(
-            points=constraints[["x", "y"]],
+        constraints = profile.sample_grids(
+            df=constraints,
             grid=misfit,
-            newcolname="misfit_sampled",
-            verbose="q",
+            name='misfit',
         )
-        # add sampled misfit value to each constraint location
-        constraints["misfit"] = constraints.merge(
-            tmp_regrid, how="left", on=["x", "y"]
-        ).misfit_sampled
-        # get median misfit of constraint poitns in each 1km cell
+
+        # get median misfit of constraint points in each 1km cell
         blocked = pygmt.blockmedian(
             data=constraints[["x", "y", "misfit"]],
-            spacing="1000",
+            spacing=grav_spacing,
             region=inversion_region,
             registration="p",
         )
+
         # grid the entire region misfit based just on the misfit at the constraints
         regional_misfit = pygmt.surface(
             data=blocked,
             region=inversion_region,
             spacing=grav_spacing,
             registration="p",
+            T=kwargs.get('tension_factor', 0.25),
             verbose="q",
         )
+
         # sample the resulting grid and add to anomalies dataframe
-        tmp_regrid = pygmt.grdtrack(
-            points=anomalies[["x", "y"]],
+        anomalies = profile.sample_grids(
+            df=anomalies,
             grid=regional_misfit,
-            radius=0,
-            newcolname="reg",
-            verbose="q",
+            name='reg',
         )
-        anomalies = anomalies.merge(tmp_regrid, on=["x", "y"], how="left")
+
+        # calculate the residual
         anomalies["res"] = anomalies.misfit - anomalies.reg
 
     # Equivalent sources method
@@ -1118,6 +931,9 @@ def jacobian_annular(gravity_data, gravity_col, prisms, spacing):
     prisms: pandas.DataFrame; dataframe of prisms coordinates with columns:
         easting, northing, top, and bottom in meters.
     spacing: float, spacing of gravity data
+
+    Returns:
+    returns a np.ndarray of shape (number of gravity points, number of prisms)
     """
     # df = vd.grid_to_table(gravity_data).dropna(subset=gravity_col)
     df = gravity_data
@@ -1141,24 +957,49 @@ def jacobian_prism(gravity_data, gravity_col, model, delta, field):
     """
     Function to calculate the Jacobian matrix with the vertical gravity derivative
     as a numerical approximation with small prisms
-    gravity_data: xarray.DataSet,
+
+    gravity_data: pd.DataFrame,
     gravity_col: str; variable of gravity_data for Observed gravity,
     model: xarray.DataSet; harmonica.prism_layer, with coordinates:
         easting, northing, top, and bottom,
         and variables: 'Density'.
     delta: float, size of small prism to add, in meters
     field: str; field to return, 'g_z' for gravitational acceleration.
+
+    Returns:
+    returns a np.ndarray of shape (number of gravity points, number of prisms)
     """
-    # df = vd.grid_to_table(gravity_data).dropna(subset=gravity_col)
     df = gravity_data
-    jac = np.empty((len(df[gravity_col]), model.top.size), dtype=np.float64)
-    # Build a generator for prisms (doesn't allocate memory,only returns at request)
-    prisms_n_density = (  # about half of the cmp. time is here.
+
+    jac = np.empty(
+        (len(df[gravity_col]),
+        # np.count_nonzero(~np.isnan(model.top.values))),
+        model.top.size),
+        dtype=np.float64,
+    )
+
+    # prisms_n_density = []
+
+    # for x in range(len(model.easting.values)):
+    #     for y in range(len(model.northing.values)):
+    #         prism_info = (
+    #             model.prism_layer.get_prism((x, y)),
+    #             model.density.values[x, y]
+    #         )
+    #         if any([np.isnan(x).any() for x in prism_info]) is False:
+    #             prisms_n_density.append(prism_info)
+
+    # Build a generator for prisms (doesn't allocate memory, only returns at request)
+    # about half of the cmp. time is here.
+    prisms_n_density = (
         (model.prism_layer.get_prism((i, j)), model.density.values[i, j])
         for i in range(model.northing.size)
         for j in range(model.easting.size)
     )
+
     for col, (prism, density) in enumerate(prisms_n_density):
+        # for prisms without any nan's (prisms with thicknesses < threshold)
+        # if any([np.isnan(x).any() for x in (prism, density)]) is False:
         # Build a small prism ontop of existing prism (thickness equal to delta)
         bottom = prism[5] - delta / 2
         top = prism[5] + delta / 2
@@ -1172,16 +1013,8 @@ def jacobian_prism(gravity_data, gravity_col, model, delta, field):
             )
             / delta
         )
+
     return jac
-    # for x in range(len(layers[density_layer]['prisms'].easting.values)):
-    #     for y in range(len(layers[density_layer]['prisms'].northing.values)):
-    #         prisms_n.append(layers[density_layer]['prisms'].prism_layer.get_prism((x,y))) # noqa
-    # for col, prism in enumerate(prisms_n):
-    #     MAT_DENS[:, col] = hm.prism_gravity(
-    #         coordinates = (df_grav.x, df_grav.y, df_grav.z),
-    #         prisms = prism,
-    #         density = 1, # unit density
-    #         field = 'g_z',)
 
 
 def solver(
@@ -1227,7 +1060,9 @@ def geo_inversion(
     active_layer: str,
     layers: dict,
     input_grav: pd.DataFrame,
+    buffer_region: list,
     regional_method: str,
+    grav_spacing: float,
     misfit_sq_tolerance: float = 0.00001,
     delta_misfit_squared_tolerance: float = 0.002,
     Max_Iterations: int = 3,
@@ -1255,6 +1090,8 @@ def geo_inversion(
         choose a method to determine the regional gravity misfit.
     input_grav : pd.DataFrame
         input gravity data with anomaly columns
+    buffer_region : Union[str, np.ndarray], optional
+            region including buffer zone, by default reads region from first grid layer
     misfit_sq_tolerance : float, optional
         _description_, by default 0.00001
     delta_misfit_squared_tolerance : float, optional
@@ -1285,8 +1122,6 @@ def geo_inversion(
         exclude_layers: np.ndarray,
             list of layers to include in partial Bouguer correction of Observed
             gravity data.
-        buffer_region : Union[str, np.ndarray], optional
-            region including buffer zone, by default reads region from first grid layer
         grav_spacing : int
                 spacing of the gravity data for create plots.
         trend: int,
@@ -1311,9 +1146,7 @@ def geo_inversion(
             inversion layer for each iteration.
             gravity: pd.DataFrame with new columns of inversion results
     """
-    # input_grav_column = kwargs.get("input_grav_column", "Gobs")
-    # apply_constraints = kwargs.get('apply_constraints', False)
-    # constraints_grid = kwargs.get('constraints_grid', None)
+
     if (
         kwargs.get("apply_constraints", False) is not False
         and kwargs.get("constraints_grid", None) is None
@@ -1322,25 +1155,6 @@ def geo_inversion(
             f"If apply_constraints = {kwargs.get('apply_constraints', False)}, ",
             "constraints_grid must be applied.",
         )
-    # trend = kwargs.get("trend", None)
-    # filter = kwargs.get("filter", None)
-    # constraints = kwargs.get("constraints", None)
-    # inversion_region = kwargs.get('inversion_region',
-    #     vd.get_region((input_grav.x, input_grav.y)))
-
-    # exclude_layers = kwargs.get('exclude_layers', [])
-    buffer_region = kwargs.get("buffer_region", None)
-    # grav_spacing = kwargs.get('grav_spacing', None)
-
-    if buffer_region is None:
-        buffer_region = [
-            int(
-                pygmt.grdinfo(list(layers.values())[0]["grid"], per_column="n", o=i)[
-                    :-1
-                ]
-            )
-            for i in range(4)
-        ]
 
     include_forward_layers = pd.Series(
         [k for k, v in layers.items() if k not in kwargs.get("corrections", [])]
@@ -1355,7 +1169,8 @@ def geo_inversion(
     # (0.02)
     while delta_misfit_squared > 1 + delta_misfit_squared_tolerance:
         ITER += 1
-        print(f"##################################\niteration {ITER}")
+
+        print(f"\n{'':#<60}##################################\niteration {ITER}")
         if ITER == 1:
             gravity = input_grav.copy()
         else:
@@ -1365,13 +1180,23 @@ def geo_inversion(
         print(f"initial RMS residual = {initial_RMS}mGal")
 
         # get prisms' coordinates from active layer and layer above
-        prisms = layers[active_layer]["prisms"].to_dataframe().reset_index().dropna()
+        prisms = (
+            layers[active_layer]["prisms"]
+            .to_dataframe()
+            .reset_index()
+            .dropna()
+        )
         prisms_above = (
             layers[include_forward_layers[ind - 1]]["prisms"]
             .to_dataframe()
             .reset_index()
             .dropna()
         )
+
+        # prisms['index']=prisms.index
+        # prisms_above['index']=prisms_above.index
+        # prisms = prisms.dropna()
+        # prisms_above = prisms_above.dropna()
 
         # calculate jacobian
         if deriv_type == "annulus":  # major issue with grav_column_der, way too slow
@@ -1393,16 +1218,30 @@ def geo_inversion(
             print("not valid derivative type")
 
         # Calculate correction for each prism's surface
-        # Surface_correction=lsqr(jac, gravity.res.values, show=False)[0]
+        # returns a 1-d array of length: number of input prisms > thickness threshold
         Surface_correction = solver(jac, gravity.res.values, solver_type=solver_type)
 
+        print(f"Mean layer correction: {Surface_correction.mean()}")
+
+        # for i, j in enumerate(prisms):
         for i in range(0, len(prisms)):
             if Surface_correction[i] > max_layer_change_per_iter:
                 Surface_correction[i] = max_layer_change_per_iter
             elif Surface_correction[i] < -max_layer_change_per_iter:
                 Surface_correction[i] = -max_layer_change_per_iter
+
+        # add corrections to active prisms layer
         prisms["correction"] = Surface_correction
+
+        # add same corrections to layer above active layer
         prisms_above["correction"] = Surface_correction
+        # prisms_above = pd.merge(
+        #     prisms_above, prisms[['correction']],
+        #     how='left',
+        #     left_index=True,
+        #     right_index=True,
+        #     )
+
         print(
             f"RMS layer correction {round(np.sqrt((Surface_correction**2).mean()),2)}m"
         )
@@ -1431,8 +1270,7 @@ def geo_inversion(
         prisms_above.bottom += prisms_above.correction
         iter_corrections[f"iter_{ITER}_final_top"] = prisms.top.copy()
 
-        # apply the z correction to the active prism layer and the above layer with
-        # Harmonica
+        # apply the z correction to the active prism layer and the above layer
         prisms_grid = pygmt.xyz2grd(
             prisms[["easting", "northing", "top"]],
             region=buffer_region,
@@ -1445,6 +1283,7 @@ def geo_inversion(
             registration="p",
             spacing=spacing,
         )
+
         layers[active_layer]["prisms"].prism_layer.update_top_bottom(
             surface=prisms_grid, reference=layers[active_layer]["prisms"].bottom
         )
@@ -1501,14 +1340,10 @@ def geo_inversion(
         gravity[f"iter_{ITER}_final_misfit"] = anomalies(
             layers=layers,
             input_grav=gravity,
-            # grav_spacing = grav_spacing,
+            grav_spacing = grav_spacing,
             regional_method=regional_method,
             input_forward_column=f"iter_{ITER}_forward_total",
-            # corrections=exclude_layers,
-            # trend=trend,
-            # filter=filter,
-            # constraints=constraints,
-            # inversion_region=inversion_region,
+            input_grav_column='Gobs',
             **kwargs,
         ).res
 
@@ -1532,7 +1367,7 @@ def geo_inversion(
         if ITER == Max_Iterations:
             print(
                 f"Inversion terminated after {ITER} iterations with least-squares norm",
-                f"={int(misfit_sq)} because maximum number of iterations ",
+                f"= {int(misfit_sq)} because maximum number of iterations ",
                 f"({Max_Iterations}) reached",
             )
             break
