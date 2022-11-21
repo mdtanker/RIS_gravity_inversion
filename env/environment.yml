@@ -22,6 +22,7 @@ dependencies:
   - ipyvtklink
   - ipykernel
   - proj-data
+  - cmocean
   - pip
   - pip:
     - numba-progress
