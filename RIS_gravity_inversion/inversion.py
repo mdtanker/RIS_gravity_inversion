@@ -1280,9 +1280,27 @@ def geo_inversion(
         else:
             print("not valid derivative type")
 
-        # Calculate correction for each prism's surface
+        # sample constraints grid at gravity points
+        if kwargs.get("apply_weights", False) is True:
+            weights_df = profile.sample_grids(
+                df=gravity,
+                grid=kwargs.get("constraints_grid", None),
+                name="weights",
+            )
+            weights = weights_df.weights
+
+        else:
+            weights = None
+
+         # Calculate correction for each prism's surface
         # returns a 1-d array of length: number of input prisms > thickness threshold
-        Surface_correction = solver(jac, gravity.res.values, solver_type=solver_type)
+        Surface_correction = solver(
+            jacobian = jac,
+            residuals = gravity.res.values,
+            weights = weights,
+            damping = kwargs.get("solver_damping", None),
+            solver_type=solver_type,
+            )
 
         print(f"Layer correction mean: {int(Surface_correction.mean())} m, RMSE:",
             f"{int(RMSE(Surface_correction))} m")
