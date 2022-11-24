@@ -675,7 +675,6 @@ def anomalies(
             anomalies[input_grav_column] - anomalies["boug_corr"]
         )
     else:
-        print("no bouguer corrections applied")
         anomalies["grav_corrected"] = anomalies[input_grav_column]
 
     # get obs-forward misfit
@@ -1119,7 +1118,7 @@ def geo_inversion(
     grav_spacing: float,
     l2_norm_tolerance: float = 1,
     delta_l2_norm_tolerance: float = 1.001,
-    Max_Iterations: int = 3,
+    max_iterations: int = 3,
     deriv_type: str = "prisms",
     solver_type: str = "least squares",
     max_layer_change_per_iter: float = 100,
@@ -1156,7 +1155,7 @@ def geo_inversion(
     delta_l2_norm_tolerance : float, optional
         end inversion if L2-norm-updated/L2-norm-previous is above this value, by
         default 1.001
-    Max_Iterations : int, optional
+    max_iterations : int, optional
         terminate the inversion after this number of iterations, by default 3
     deriv_type : {'prisms', 'annulus'}, optional
         choose method for calculating vertical derivative of gravity, by default
@@ -1236,10 +1235,8 @@ def geo_inversion(
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
     ITER = 0
 
-    # stop inversion if old l2-norm/new l2-norm is < tolerance
-    while delta_l2_norm > delta_l2_norm_tolerance:
-        ITER += 1
 
+    for ITER, _ in enumerate(range(max_iterations), start=1):
         print(f"\n{'':#<60}##################################\niteration {ITER}")
         if ITER == 1:
             gravity = input_grav.copy()
@@ -1386,7 +1383,6 @@ def geo_inversion(
 
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
 
-        print("updating forward gravity")
         gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[
             active_layer
         ]["prisms"].prism_layer.gravity(
@@ -1472,23 +1468,26 @@ def geo_inversion(
             .top
         )
 
-        if ITER == Max_Iterations:
-            print(
-                f"\nInversion terminated after {ITER} iterations with L2-norm=",
-                f"{round(l2_norm, 2)} because maximum number of iterations ",
-                f"({Max_Iterations}) reached",
+        if delta_l2_norm < delta_l2_norm_tolerance:
+            print(f"\nInversion terminated after {ITER} iterations because there was",
+                "no significant variation in the L2-norm",
             )
             break
 
         if l2_norm < l2_norm_tolerance:
             print(
-                f"\nInversion terminated after {ITER} iterations with L2-norm=",
+                f"\nInversion terminated after {ITER} iterations with L2-norm =",
                 f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}",
             )
             break
 
-    if delta_l2_norm < delta_l2_norm_tolerance:
-        print("\n no significant variation in L2-norm")
+        if ITER == max_iterations:
+            print(
+                f"\nInversion terminated after {ITER} iterations with L2-norm =",
+                f"{round(l2_norm, 2)} because maximum number of iterations ",
+                f"({max_iterations}) reached",
+            )
+            break
 
     if save_results is True:
         iter_corrections.to_csv(
