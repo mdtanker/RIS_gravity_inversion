@@ -27,6 +27,10 @@ def timer(func):
         return value
     return wrapper_timer
 
+# function to give RMSE of data
+def RMSE(data):
+    return np.sqrt(np.nanmean(data**2).item())
+
 def import_layers(
     layers_list: list,
     spacing_list: list,
@@ -778,8 +782,8 @@ def anomalies(
         # calculate the residual field
         anomalies["res"] = anomalies.misfit - anomalies.reg
 
-    RMS = round(np.sqrt((anomalies.res**2).mean(skipna=True)), 2)
-    print(f"Root mean squared residual: {RMS}mGal")
+    # rmse = RMSE(anomalies.res)
+    # print(f"Misfit RMSE: {round(rmse, 2)} mGal")
 
     return anomalies
 
@@ -1275,8 +1279,11 @@ def geo_inversion(
         else:
             gravity["res"] = gravity[f"iter_{ITER-1}_final_misfit"]
 
-        initial_RMS = round(np.sqrt((gravity.res**2).mean(skipna=True)), 2)
-        print(f"initial RMS residual = {initial_RMS}mGal")
+        initial_RMSE = RMSE(gravity.res)
+        l2_norm = np.sqrt(initial_RMSE)
+        print(f"initial misfit RMSE = {round(initial_RMSE, 2)} mGal")
+        print(f"initial L2-norm : {round(l2_norm, 2)}")
+        print(f"initial delta L2-norm : {round(delta_l2_norm, 2)}")
 
         # get prisms' coordinates from active layer and layer above
         prisms = layers[active_layer]["prisms"].to_dataframe().reset_index().dropna()
@@ -1315,7 +1322,8 @@ def geo_inversion(
         # returns a 1-d array of length: number of input prisms > thickness threshold
         Surface_correction = solver(jac, gravity.res.values, solver_type=solver_type)
 
-        print(f"Mean layer correction: {Surface_correction.mean()}")
+        print(f"Layer correction mean: {int(Surface_correction.mean())} m, RMSE:",
+            f"{int(RMSE(Surface_correction))} m")
 
         # for i, j in enumerate(prisms):
         for i in range(0, len(prisms)):
@@ -1336,9 +1344,7 @@ def geo_inversion(
         #     right_index=True,
         #     )
 
-        print(
-            f"RMS layer correction {round(np.sqrt((Surface_correction**2).mean()),2)}m"
-        )
+
         # apply above surface corrections
         if kwargs.get("apply_constraints", False) is True:
             prisms["constraints"] = (
@@ -1441,11 +1447,9 @@ def geo_inversion(
             **kwargs,
         ).res
 
-        # for first iteration, divide infinity by mean square of gravity residuals,
-        # inversion will stop once this gets to delta_misfit_squared_tolerance (0.02)
-        misfit_sq = (gravity[f"iter_{ITER}_final_misfit"] ** 2).mean(skipna=True).item()
-        delta_misfit_squared = misfit_squared_updated / misfit_sq
-        misfit_squared_updated = misfit_sq  # updated
+        # calculate updated RMSE of the misfit
+        updated_RMSE = RMSE(gravity[f"iter_{ITER}_final_misfit"])
+        print(f"\nupdated misfit RMSE: {round(updated_RMSE, 2)}")
 
         layers[active_layer]["inv_grid"] = (
             prisms.rename(columns={"easting": "x", "northing": "y"})
