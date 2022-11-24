@@ -1,6 +1,10 @@
+import copy
+import functools
+import time
 import warnings
 
 import harmonica as hm
+import numba
 import numpy as np
 import pandas as pd
 import pygmt
@@ -8,10 +12,6 @@ import verde as vd
 import xarray as xr
 from antarctic_plots import fetch, maps, profile, utils
 from scipy.sparse.linalg import lsqr
-import copy
-import functools
-import time
-import numba
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
 warnings.filterwarnings("ignore", message="pandas.Float64Index")
@@ -26,11 +26,14 @@ def timer(func):
         elapsed_time = toc - tic
         print(f"Elapsed time: {elapsed_time:0.4f} seconds")
         return value
+
     return wrapper_timer
+
 
 # function to give RMSE of data
 def RMSE(data):
     return np.sqrt(np.nanmean(data**2).item())
+
 
 def import_layers(
     layers_list: list,
@@ -841,7 +844,7 @@ def _jacobian_annular_numba(
     jac = np.empty(
         (len(grav_residual), len(prism_easting)),
         dtype=np.float64,
-        )
+    )
 
     for i in numba.prange(len(grav_residual)):
         jac[i, :] = grav_column_der(
@@ -853,7 +856,7 @@ def _jacobian_annular_numba(
             prism_top,
             prism_bottom,
             spacing,
-            prism_density / 1000, # density
+            prism_density / 1000,  # density
         )
     return jac
 
@@ -945,11 +948,12 @@ def _jacobian_prism_numba(
 
     jac = np.empty(
         (
-        len(grav_residual),
-        # np.count_nonzero(~np.isnan(model.top.values))),
-        model.top.size,),
+            len(grav_residual),
+            # np.count_nonzero(~np.isnan(model.top.values))),
+            model.top.size,
+        ),
         dtype=np.float64,
-        )
+    )
 
     # prisms_n_density = []
     # for x in range(len(model.easting.values)):
@@ -959,8 +963,8 @@ def _jacobian_prism_numba(
     #             model.density.values[x, y]
     #         )
     #         prisms_n_density.append(prism_info)
-            # if any([np.isnan(x).any() for x in prism_info]) is False:
-                # prisms_n_density.append(prism_info)
+    # if any([np.isnan(x).any() for x in prism_info]) is False:
+    # prisms_n_density.append(prism_info)
 
     # Build a generator for prisms (doesn't allocate memory, only returns at request)
     # about half of the cmp. time is here.
@@ -1086,21 +1090,21 @@ def solver(
             residuals,
             show=False,
             damp=0,
-            )[0]
-    elif solver_type == 'verde least squares':
+        )[0]
+    elif solver_type == "verde least squares":
         step = vd.base.least_squares(
             jacobian,
             residuals,
-            weights = None,
-            damping = damping,
-            copy_jacobian = False,
-            )
-    elif solver_type == 'gauss newton':
+            weights=None,
+            damping=damping,
+            copy_jacobian=False,
+        )
+    elif solver_type == "gauss newton":
         pass
     #     hessian = jacobian.T @ jacobian
     #     gradient = jacobian.T @ residuals
     #     step = np.linalg.solve(hessian, gradient)
-    elif solver_type == 'steepest descent':
+    elif solver_type == "steepest descent":
         pass
     #     step = - jacobian.T @ residuals
     return step
@@ -1249,7 +1253,9 @@ def geo_inversion(
         print(f"initial delta L2-norm : {round(delta_l2_norm, 2)}")
 
         # get prisms' coordinates from active layer and layer above
-        prisms = layers_update[active_layer]["prisms"].to_dataframe().reset_index().dropna()
+        prisms = (
+            layers_update[active_layer]["prisms"].to_dataframe().reset_index().dropna()
+        )
         prisms_above = (
             layers_update[include_forward_layers[ind - 1]]["prisms"]
             .to_dataframe()
@@ -1293,18 +1299,20 @@ def geo_inversion(
         else:
             weights = None
 
-         # Calculate correction for each prism's surface
+        # Calculate correction for each prism's surface
         # returns a 1-d array of length: number of input prisms > thickness threshold
         Surface_correction = solver(
-            jacobian = jac,
-            residuals = gravity.res.values,
-            weights = weights,
-            damping = kwargs.get("solver_damping", None),
+            jacobian=jac,
+            residuals=gravity.res.values,
+            weights=weights,
+            damping=kwargs.get("solver_damping", None),
             solver_type=solver_type,
-            )
+        )
 
-        print(f"Layer correction mean: {int(Surface_correction.mean())} m, RMSE:",
-            f"{int(RMSE(Surface_correction))} m")
+        print(
+            f"Layer correction mean: {int(Surface_correction.mean())} m, RMSE:",
+            f"{int(RMSE(Surface_correction))} m",
+        )
 
         # for i, j in enumerate(prisms):
         for i in range(0, len(prisms)):
@@ -1324,7 +1332,6 @@ def geo_inversion(
         #     left_index=True,
         #     right_index=True,
         #     )
-
 
         # apply above surface corrections
         if kwargs.get("apply_constraints", False) is True:
@@ -1368,7 +1375,9 @@ def geo_inversion(
         layers_update[active_layer]["prisms"].prism_layer.update_top_bottom(
             surface=prisms_grid, reference=layers_update[active_layer]["prisms"].bottom
         )
-        layers_update[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
+        layers_update[include_forward_layers[ind - 1]][
+            "prisms"
+        ].prism_layer.update_top_bottom(
             surface=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
             reference=prisms_above_grid,
         )
@@ -1378,14 +1387,16 @@ def geo_inversion(
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
 
         print("updating forward gravity")
-        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[active_layer][
-            "prisms"
-        ].prism_layer.gravity(
+        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[
+            active_layer
+        ]["prisms"].prism_layer.gravity(
             coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
         )
-        gravity[f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"] = layers_update[
-            include_forward_layers[ind - 1]
-        ]["prisms"].prism_layer.gravity(
+        gravity[
+            f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"
+        ] = layers_update[include_forward_layers[ind - 1]][
+            "prisms"
+        ].prism_layer.gravity(
             coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
         )
         # center on 0
@@ -1435,14 +1446,18 @@ def geo_inversion(
         # square-root of RMSE is the l-2 norm
         updated_l2_norm = np.sqrt(updated_RMSE)
 
-        print(f"updated L2-norm: {round(updated_l2_norm, 2)}, ",
-            f"tolerance: {l2_norm_tolerance}")
+        print(
+            f"updated L2-norm: {round(updated_l2_norm, 2)}, ",
+            f"tolerance: {l2_norm_tolerance}",
+        )
 
         # inversion will stop once this gets to delta_l2_norm_tolerance (0.02)
         updated_delta_l2_norm = l2_norm / updated_l2_norm
 
-        print(f"updated delta L2-norm : {round(updated_delta_l2_norm, 2)}, ",
-            f"tolerance: {delta_l2_norm_tolerance}")
+        print(
+            f"updated delta L2-norm : {round(updated_delta_l2_norm, 2)}, ",
+            f"tolerance: {delta_l2_norm_tolerance}",
+        )
 
         # update the l2_norm
         l2_norm = updated_l2_norm
@@ -1459,15 +1474,17 @@ def geo_inversion(
 
         if ITER == Max_Iterations:
             print(
-                f"\nInversion terminated after {ITER} iterations with least-squares (L2)",
-                f"norm = {l2_norm} because maximum number of iterations ",
+                f"\nInversion terminated after {ITER} iterations with L2-norm=",
+                f"{round(l2_norm, 2)} because maximum number of iterations ",
                 f"({Max_Iterations}) reached",
             )
             break
 
         if l2_norm < l2_norm_tolerance:
-            print(f"\nInversion terminated after {ITER} iterations with L2-norm=",
-            f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}")
+            print(
+                f"\nInversion terminated after {ITER} iterations with L2-norm=",
+                f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}",
+            )
             break
 
     if delta_l2_norm < delta_l2_norm_tolerance:

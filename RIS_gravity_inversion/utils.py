@@ -1,6 +1,7 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import verde as vd
-import matplotlib.pyplot as plt
+
 
 def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
     """
@@ -25,17 +26,18 @@ def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
         Gaussian function evaluated at *x*, *y*
 
     """
-    theta = -1 * angle * np.pi / 180.
-    tmpx = 1. / sigma_x ** 2
-    tmpy = 1. / sigma_y ** 2
+    theta = -1 * angle * np.pi / 180.0
+    tmpx = 1.0 / sigma_x**2
+    tmpy = 1.0 / sigma_y**2
     sintheta = np.sin(theta)
     costheta = np.cos(theta)
-    a = tmpx * costheta + tmpy * sintheta ** 2
+    a = tmpx * costheta + tmpy * sintheta**2
     b = (tmpy - tmpx) * costheta * sintheta
-    c = tmpx * sintheta ** 2 + tmpy * costheta ** 2
+    c = tmpx * sintheta**2 + tmpy * costheta**2
     xhat = x - x0
     yhat = y - y0
-    return np.exp(-(a * xhat ** 2 + 2. * b * xhat * yhat + c * yhat ** 2))
+    return np.exp(-(a * xhat**2 + 2.0 * b * xhat * yhat + c * yhat**2))
+
 
 def exponential_surface(
     x,
@@ -46,59 +48,66 @@ def exponential_surface(
     decay,
     x_shift=0,
     y_shift=0,
-    ):
+):
     # get x and y range
-    x_range = abs(region[1]-region[0])
-    y_range = abs(region[3]-region[2])
+    x_range = abs(region[1] - region[0])
+    y_range = abs(region[3] - region[2])
 
-    x_center = x - (region[0] + x_range/2)
-    y_center = y - (region[2] + y_range/2)
+    x_center = x - (region[0] + x_range / 2)
+    y_center = y - (region[2] + y_range / 2)
 
-    func = np.exp( - ((x_center - x_shift)**2 + (y_center - y_shift)**2)/decay)
+    func = np.exp(-((x_center - x_shift) ** 2 + (y_center - y_shift) ** 2) / decay)
 
     return base_level + (scaling * func)
+
 
 def synthetic_topography_simple(
     spacing,
     region,
     plot_individuals=False,
-    ):
+):
 
     # create grid of coordinates
     (x, y) = vd.grid_coordinates(region=region, spacing=spacing)
 
     # get x and y range
-    x_range = abs(region[1]-region[0])
-    y_range = abs(region[3]-region[2])
+    x_range = abs(region[1] - region[0])
+    y_range = abs(region[3] - region[2])
 
     # create topographic features
     feature1 = exponential_surface(
-        x, y, region,
-        -3500, -600, 1e11, x_range*.4, y_range*-.2)
-    feature2 = gaussian2d(
-        x,
-        y,
-        sigma_x = x_range*3,
-        sigma_y = y_range*.4,
-        x0 = region[0]+x_range*.2,
-        y0 = region[2]+y_range*.6,
-        angle=10,
-    ) * -600
-    feature3 = gaussian2d(
-        x,
-        y,
-        sigma_x = x_range*.2,
-        sigma_y = y_range*7,
-        x0 = region[0]+x_range*.8,
-        y0 = region[2]+y_range*.3,
-        angle=80,
-    ) * 1000
+        x, y, region, -3500, -600, 1e11, x_range * 0.4, y_range * -0.2
+    )
+    feature2 = (
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 3,
+            sigma_y=y_range * 0.4,
+            x0=region[0] + x_range * 0.2,
+            y0=region[2] + y_range * 0.6,
+            angle=10,
+        )
+        * -600
+    )
+    feature3 = (
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 0.2,
+            sigma_y=y_range * 7,
+            x0=region[0] + x_range * 0.8,
+            y0=region[2] + y_range * 0.3,
+            angle=80,
+        )
+        * 1000
+    )
 
     features = [feature1, feature2, feature3]
 
     topo = sum(features)
 
-    grid = vd.make_xarray_grid((x, y), topo, data_names='z', dims=('y', 'x')).z
+    grid = vd.make_xarray_grid((x, y), topo, data_names="z", dims=("y", "x")).z
 
     if plot_individuals is True:
         sub_width = 5
@@ -110,7 +119,7 @@ def synthetic_topography_simple(
             figsize=(sub_width * ncols, sub_width * nrows),
         )
         for i, (f, ax) in enumerate(zip(features, ax.T.ravel())):
-            feature = vd.make_xarray_grid((x, y), f, data_names='z', dims=('y', 'x')).z
+            feature = vd.make_xarray_grid((x, y), f, data_names="z", dims=("y", "x")).z
             feature.plot(
                 ax=ax,
                 x="x",
@@ -130,60 +139,67 @@ def synthetic_topography_simple(
             ax.set_aspect("equal")
 
     return grid
+
 
 def synthetic_topography(
     spacing,
     region,
     plot_individuals=False,
-    ):
+):
 
     # create grid of coordinates
     (x, y) = vd.grid_coordinates(region=region, spacing=spacing)
 
     # get x and y range
-    x_range = abs(region[1]-region[0])
-    y_range = abs(region[3]-region[2])
+    x_range = abs(region[1] - region[0])
+    y_range = abs(region[3] - region[2])
 
     # create topographic features
     # regional
     feature1 = exponential_surface(
-        x, y, region,
-        -500, -600, 1e11, x_range*.4, y_range*-.2)
+        x, y, region, -500, -600, 1e11, x_range * 0.4, y_range * -0.2
+    )
     feature2 = exponential_surface(
-        x, y, region,
-        -500, 300, 1e10, x_range*-.2, y_range*-.3)
+        x, y, region, -500, 300, 1e10, x_range * -0.2, y_range * -0.3
+    )
 
     # high-frequency
     feature3 = exponential_surface(
-        x, y, region,
-        -500, -150, 1e8, x_range*.2, y_range*.2)
+        x, y, region, -500, -150, 1e8, x_range * 0.2, y_range * 0.2
+    )
     feature4 = exponential_surface(
-        x, y, region,
-        -500, 250, 5e7, x_range*-.1, y_range*-.2)
-    feature5 = gaussian2d(
-        x,
-        y,
-        sigma_x = x_range*.03,
-        sigma_y = y_range*.5,
-        x0 = region[0]+x_range*.2,
-        y0 = region[2]+y_range*.4,
-        angle=20,
-        ) * -400
-    feature6 = gaussian2d(
-        x,
-        y,
-        sigma_x = x_range*1,
-        sigma_y = y_range*.05,
-        x0 = region[0]+x_range*.8,
-        y0 = region[2]+y_range*.4,
-        angle=45,
-        ) * 200
+        x, y, region, -500, 250, 5e7, x_range * -0.1, y_range * -0.2
+    )
+    feature5 = (
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 0.03,
+            sigma_y=y_range * 0.5,
+            x0=region[0] + x_range * 0.2,
+            y0=region[2] + y_range * 0.4,
+            angle=20,
+        )
+        * -400
+    )
+    feature6 = (
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 1,
+            sigma_y=y_range * 0.05,
+            x0=region[0] + x_range * 0.8,
+            y0=region[2] + y_range * 0.4,
+            angle=45,
+        )
+        * 200
+    )
 
     features = [feature1, feature2, feature3, feature4, feature5, feature6]
 
     topo = sum(features)
 
-    grid = vd.make_xarray_grid((x, y), topo, data_names='z', dims=('y', 'x')).z
+    grid = vd.make_xarray_grid((x, y), topo, data_names="z", dims=("y", "x")).z
 
     if plot_individuals is True:
         sub_width = 5
@@ -195,7 +211,7 @@ def synthetic_topography(
             figsize=(sub_width * ncols, sub_width * nrows),
         )
         for i, (f, ax) in enumerate(zip(features, ax.T.ravel())):
-            feature = vd.make_xarray_grid((x, y), f, data_names='z', dims=('y', 'x')).z
+            feature = vd.make_xarray_grid((x, y), f, data_names="z", dims=("y", "x")).z
             feature.plot(
                 ax=ax,
                 x="x",
@@ -215,6 +231,7 @@ def synthetic_topography(
             ax.set_aspect("equal")
 
     return grid
+
 
 def contaminate(data, stddev, percent=False, return_stddev=False, seed=None):
     r"""
@@ -283,7 +300,7 @@ def contaminate(data, stddev, percent=False, return_stddev=False, seed=None):
         data = [data]
     contam = []
     for i in range(len(stddev)):
-        if stddev[i] == 0.:
+        if stddev[i] == 0.0:
             contam.append(data[i])
             continue
         if percent:

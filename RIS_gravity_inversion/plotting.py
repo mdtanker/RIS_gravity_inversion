@@ -9,7 +9,9 @@ import pyvista as pv
 import seaborn as sns
 import verde as vd
 from antarctic_plots import maps, utils
+
 import RIS_gravity_inversion.inversion as inv
+
 
 def plot_inputs(
     inputs: list,
@@ -747,7 +749,7 @@ def anomalies_plotting(
                     constraints.x,
                     constraints.y,
                     "kx",
-                    markersize=kwargs.get("constraint_size", 4),,
+                    markersize=kwargs.get("constraint_size", 4),
                     markeredgewidth=1,
                 )
 
@@ -904,8 +906,6 @@ def plot_inversion_results(
     # get grid spacing
     spacing = layers_dict[active_layer]["spacing"]
 
-
-
     if plot_iters is True:
         misfit_grids = []
         topo_grids = []
@@ -1005,14 +1005,14 @@ def plot_inversion_results(
 
                 # add subplot titles
                 if column == 0:  # misfit grids
-                    rmse = inv.RMSE(grav_results[f'iter_{row+1}_initial_misfit'])
+                    rmse = inv.RMSE(grav_results[f"iter_{row+1}_initial_misfit"])
                     ax[row, column].set_title(
                         f"initial misfit RMSE = {round(rmse, 2)} mGal"
                     )
                 elif column == 1:  # topography grids
                     ax[row, column].set_title("updated bathymetry")
                 elif column == 2:  # correction grids
-                    rmse = inv.RMSE(topo_results[f'iter_{row+1}_correction'])
+                    rmse = inv.RMSE(topo_results[f"iter_{row+1}_correction"])
                     ax[row, column].set_title(
                         f"iteration correction RMSE = {round(rmse, 2)} m"
                     )
@@ -1023,22 +1023,25 @@ def plot_inversion_results(
                             constraints.x,
                             constraints.y,
                             "k+",
-                            markersize=kwargs.get("constraint_size", 4),,
-                            markeredgewidth=1,)
+                            markersize=kwargs.get("constraint_size", 4),
+                            markeredgewidth=1,
+                        )
                     elif column == 1:  # topography grids
                         ax[row, column].plot(
                             constraints.x,
                             constraints.y,
                             "r+",
-                            markersize=kwargs.get("constraint_size", 4),,
-                            markeredgewidth=1,)
+                            markersize=kwargs.get("constraint_size", 4),
+                            markeredgewidth=1,
+                        )
                     elif column == 2:  # correction grids
                         ax[row, column].plot(
                             constraints.x,
                             constraints.y,
                             "k+",
-                            markersize=kwargs.get("constraint_size", 4),,
-                            markeredgewidth=1,)
+                            markersize=kwargs.get("constraint_size", 4),
+                            markeredgewidth=1,
+                        )
 
                 # set axes labels and make proportional
                 ax[row, column].set_xticklabels([])
