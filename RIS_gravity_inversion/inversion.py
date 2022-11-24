@@ -11,6 +11,7 @@ from scipy.sparse.linalg import lsqr
 import copy
 import functools
 import time
+import numba
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
 warnings.filterwarnings("ignore", message="pandas.Float64Index")
@@ -785,178 +786,7 @@ def anomalies(
     return anomalies
 
 
-def density_inversion(
-    density_layer,
-    df_grav,
-    layers,
-    max_density_change=2000,
-    grav_spacing=None,
-    input_grav=None,
-    buffer_reg=None,
-    inv_reg=None,
-    buffer_proj=None,
-    plot=True,
-):
-    """
-    Function to invert gravity anomaly to update a prism layer's density.
-    density_layer: str; layer to perform inversion on
-    max_density_change: int, maximum amount to change each prisms density by, in kg/m^3
-    input_grav: xarray.DataSet
-    plot: bool; defaults to True
-    """
-    if input_grav is None:
-        input_grav = df_grav.Gobs_shift_filt
-    # density in kg/m3
-    forward_grav_layers(layers=layers, plot=False)
-    # spacing = layers[density_layer]["spacing"]
-
-    # df_grav['inv_misfit']=df_grav.Gobs_shift-df_grav[f'forward_grav_total']
-    df_grav["inv_misfit"] = input_grav - df_grav["forward_grav_total"]
-
-    # get prisms' coordinates from active layer
-    prisms = layers[density_layer]["prisms"].to_dataframe().reset_index().dropna()
-
-    print(f"active layer average density: {int(prisms.density.mean())}kg/m3")
-
-    MAT_DENS = np.zeros([len(input_grav), len(prisms)])
-
-    initial_RMS = round(np.sqrt((df_grav["inv_misfit"] ** 2).mean()), 2)
-    print(f"initial RMS = {initial_RMS}mGal")
-    print("calculating sensitivity matrix to determine density correction")
-
-    prisms_n = []
-    for x in range(len(layers[density_layer]["prisms"].easting.values)):
-        for y in range(len(layers[density_layer]["prisms"].northing.values)):
-            prisms_n.append(
-                layers[density_layer]["prisms"].prism_layer.get_prism((x, y))
-            )
-    for col, prism in enumerate(prisms_n):
-        MAT_DENS[:, col] = hm.prism_gravity(
-            coordinates=(df_grav.x, df_grav.y, df_grav.z),
-            prisms=prism,
-            density=1,  # unit density
-            field="g_z",
-        )
-    # Calculate shift to prism's densities to minimize misfit
-    Density_correction = lsqr(MAT_DENS, df_grav.inv_misfit, show=False)[0]
-
-    # for i,j in enumerate((input_grav)): #add tqdm for progressbar
-    # MAT_DENS[i,:] = gravbox(
-    #     df_grav.y.iloc[i],
-    #     df_grav.x.iloc[i],
-    #     df_grav.z.iloc[i],
-    #     prisms.northing-spacing/2,
-    #     prisms.northing+spacing/2,
-    #     prisms.easting-spacing/2,
-    #     prisms.easting+spacing/2,
-    #     prisms.top,
-    #     prisms.bottom,
-    #     np.ones_like(prisms.density),
-    # )  # unit density, list of ones
-    # # Calculate shift to prism's densities to minimize misfit
-    # Density_correction=lsqr(MAT_DENS,df_grav.inv_misfit,show=False)[0]*1000
-
-    # apply max density change
-    for i in range(0, len(prisms)):
-        if Density_correction[i] > max_density_change:
-            Density_correction[i] = max_density_change
-        elif Density_correction[i] < -max_density_change:
-            Density_correction[i] = -max_density_change
-
-    # resetting the rho values with the above correction
-    prisms["density_correction"] = Density_correction
-    prisms["updated_density"] = prisms.density + prisms.density_correction
-    dens_correction = pygmt.xyz2grd(
-        x=prisms.easting,
-        y=prisms.northing,
-        z=prisms.density_correction,
-        registration="p",
-        region=buffer_reg,
-        spacing=grav_spacing,
-        projection=buffer_proj,
-    )
-    dens_update = pygmt.xyz2grd(
-        x=prisms.easting,
-        y=prisms.northing,
-        z=prisms.updated_density,
-        registration="p",
-        region=buffer_reg,
-        spacing=layers[density_layer]["spacing"],
-        projection=buffer_proj,
-    )
-    initial_misfit = pygmt.xyz2grd(
-        df_grav[["x", "y", "inv_misfit"]],
-        region=inv_reg,
-        spacing=grav_spacing,
-        registration="p",
-    )
-
-    # apply the rho correction to the prism layer
-    layers[density_layer]["prisms"]["density"].values = dens_update.values
-    print(
-        "average density:",
-        f"{int(layers[density_layer]['prisms'].to_dataframe().reset_index().dropna().density.mean())}",  # noqa
-        "kg/m3",
-    )
-    # recalculate forward gravity of active layer
-    print("calculating updated forward gravity")
-    df_grav[f"forward_grav_{density_layer}"] = layers[density_layer][
-        "prisms"
-    ].prism_layer.gravity(coordinates=(df_grav.x, df_grav.y, df_grav.z), field="g_z")
-
-    # Recalculate of gravity misfit, i.e., the difference between calculated and
-    # observed gravity
-    df_grav["forward_grav_total"] = (
-        df_grav.forward_grav_total
-        - df_grav[f"{density_layer}_forward_grav"]
-        + df_grav[f"forward_grav_{density_layer}"]
-    )
-
-    df_grav.inv_misfit = input_grav - df_grav.forward_grav_total
-    final_RMS = round(np.sqrt((df_grav.inv_misfit**2).mean()), 2)
-    print(f"RMSE after inversion = {final_RMS}mGal")
-    final_misfit = pygmt.xyz2grd(
-        df_grav[["x", "y", "inv_misfit"]],
-        region=buffer_reg,
-        registration="p",
-        spacing=grav_spacing,
-    )
-
-    if plot is True:
-        grid = initial_misfit
-        fig = maps.plot_grd(
-            grid=grid,
-            cmap="polar+h0",
-            cbar_label=f"initial misfit (mGal) [{initial_RMS}]",
-        )
-
-        grid = dens_correction
-        fig = maps.plot_grd(
-            grid=grid,
-            cmap="polar+h0",
-            cbar_label="density correction (kg/m3)",
-            origin_shift="xshift",
-        )
-
-        grid = dens_update
-        fig = maps.plot_grd(
-            grid=grid,
-            cmap="viridis",
-            cbar_label="updated density (kg/m3)",
-            origin_shift="xshift",
-        )
-
-        grid = final_misfit
-        fig = maps.plot_grd(
-            grid=grid,
-            cmap="polar+h0",
-            cbar_label=f"final misfit (mGal) [{final_RMS}]",
-            origin_shift="xshift",
-        )
-
-        fig.show(width=1200)
-
-
+@numba.njit(parallel=True)
 def grav_column_der(x0, y0, z0, xc, yc, z1, z2, res, rho):
     """
     Function to calculate the vertical derivate of the gravitational acceleration cause
@@ -986,17 +816,60 @@ def grav_column_der(x0, y0, z0, xc, yc, z1, z2, res, rho):
     return anomaly_grad
 
 
+@numba.njit(parallel=True)
+def _jacobian_annular_numba(
+    grav_residual,
+    grav_x,
+    grav_y,
+    grav_z,
+    prism_easting,
+    prism_northing,
+    prism_top,
+    prism_bottom,
+    prism_density,
+    spacing: float,
+):
+    """
+    Takes arrays from `jacobian_annular`, feeds them into `grav_column_der`, and returns
+    the jacobian.
+
+    Returns
+    -------
+    np.ndarray
+        returns a np.ndarray of shape (number of gravity points, number of prisms)
+    """
+
+    jac = np.empty(
+        (len(grav_residual), len(prism_easting)),
+        dtype=np.float64,
+        )
+
+    for i in numba.prange(len(grav_residual)):
+        jac[i, :] = grav_column_der(
+            grav_y[i],
+            grav_x[i],
+            grav_z[i],
+            prism_northing,
+            prism_easting,
+            prism_top,
+            prism_bottom,
+            spacing,
+            prism_density / 1000, # density
+        )
+    return jac
+
+
 def jacobian_annular(
     gravity_data: pd.DataFrame,
     gravity_col: str,
-    prisms: pd.DataFrame,
+    model: xr.Dataset,
     spacing: float,
 ):
     """
     Function to calculate the Jacobian matrix using the annular cylinder approximation
-    jacobian is matrix array with NG number of rows and NBath+NBase+NM number of columns
-    uses vertical derivative of gravity to find least squares solution to minize gravity
-    misfit for each grav station
+    The resulting Jacobian is a matrix (numpy array) with a row per gravity misfit value
+    and a column per prism. This approximates the prisms as an annulus, and calculates
+    it's vertical gravity derivative.
 
     Parameters
     ----------
@@ -1004,9 +877,9 @@ def jacobian_annular(
         dataframe containing gravity data
     gravity_col : str
         column of gravity_data with observed gravity
-    prisms : pd.DataFrame
-        dataframe of prisms coordinates with columns:
-        easting, northing, top, and bottom in meters.
+    model : xr.Dataset
+        harmonica.prism_layer, with coordinates:
+        easting, northing, top, and bottom, and variables: 'Density'.
     spacing : float
         spacing of gravity data
 
@@ -1016,20 +889,107 @@ def jacobian_annular(
         returns a np.ndarray of shape (number of gravity points, number of prisms)
     """
 
-    df = gravity_data
-    jac = np.empty((len(df[gravity_col]), len(prisms)), dtype=np.float64)
-    for i, j in enumerate((df[gravity_col])):
-        jac[i, :] = grav_column_der(  # major issue here, way too slow
-            df.y.iloc[i],  # coords of gravity observation points
-            df.x.iloc[i],
-            df.z.iloc[i],
-            prisms.northing,
-            prisms.easting,
-            prisms.top,
-            prisms.bottom,
-            spacing,
-            prisms.density / 1000,
+    # convert prism model to dataframe
+    prisms = model.to_dataframe().reset_index().dropna()
+
+    # convert dataframes to numpy arrays
+    grav_array = gravity_data.to_numpy()
+    prisms_array = prisms.to_numpy()
+
+    # get various arrays based on gravity column names
+    grav_residual = grav_array[:, gravity_data.columns.get_loc(gravity_col)]
+    grav_x = grav_array[:, gravity_data.columns.get_loc("x")]
+    grav_y = grav_array[:, gravity_data.columns.get_loc("y")]
+    grav_z = grav_array[:, gravity_data.columns.get_loc("z")]
+
+    # get various arrays based on prisms column names
+    prism_easting = prisms_array[:, prisms.columns.get_loc("easting")]
+    prism_northing = prisms_array[:, prisms.columns.get_loc("northing")]
+    prism_top = prisms_array[:, prisms.columns.get_loc("top")]
+    prism_bottom = prisms_array[:, prisms.columns.get_loc("bottom")]
+    prism_density = prisms_array[:, prisms.columns.get_loc("density")]
+
+    # feed above arrays into the jacobian function
+    jac = _jacobian_annular_numba(
+        grav_residual,
+        grav_x,
+        grav_y,
+        grav_z,
+        prism_easting,
+        prism_northing,
+        prism_top,
+        prism_bottom,
+        prism_density,
+        spacing,
+    )
+
+    return jac
+
+
+def _jacobian_prism_numba(
+    grav_residual,
+    grav_x,
+    grav_y,
+    grav_z,
+    model,
+    delta: float,
+    field: str,
+):
+    """
+    Takes arrays from `jacobian_prisms` and calculates the jacobian.
+
+    Returns
+    -------
+    np.ndarray
+        returns a np.ndarray of shape (number of gravity points, number of prisms)
+    """
+
+    jac = np.empty(
+        (
+        len(grav_residual),
+        # np.count_nonzero(~np.isnan(model.top.values))),
+        model.top.size,),
+        dtype=np.float64,
         )
+
+    # prisms_n_density = []
+    # for x in range(len(model.easting.values)):
+    #     for y in range(len(model.northing.values)):
+    #         prism_info = (
+    #             model.prism_layer.get_prism((x, y)),
+    #             model.density.values[x, y]
+    #         )
+    #         prisms_n_density.append(prism_info)
+            # if any([np.isnan(x).any() for x in prism_info]) is False:
+                # prisms_n_density.append(prism_info)
+
+    # Build a generator for prisms (doesn't allocate memory, only returns at request)
+    # about half of the cmp. time is here.
+    prisms_n_density = (
+        (model.prism_layer.get_prism((i, j)), model.density.values[i, j])
+        for i in range(model.northing.size)
+        for j in range(model.easting.size)
+    )
+
+    for col, (prism, density) in enumerate(prisms_n_density):
+        # for prisms without any nan's (prisms with thicknesses < threshold)
+        # if any([np.isnan(x).any() for x in (prism, density)]) is False:
+        # Build a small prism ontop of existing prism (thickness equal to delta)
+        bottom = prism[5] - delta / 2
+        top = prism[5] + delta / 2
+        delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
+
+        jac[:, col] = (
+            hm.prism_gravity(
+                coordinates=(grav_x, grav_y, grav_z),
+                prisms=delta_prism,
+                density=density,
+                field=field,
+                parallel=True,
+            )
+            / delta
+        )
+
     return jac
 
 
@@ -1064,52 +1024,25 @@ def jacobian_prism(
         returns a np.ndarray of shape (number of gravity points, number of prisms)
     """
 
-    df = gravity_data
+    # convert dataframes to numpy arrays
+    grav_array = gravity_data.to_numpy()
 
-    jac = np.empty(
-        (
-            len(df[gravity_col]),
-            # np.count_nonzero(~np.isnan(model.top.values))),
-            model.top.size,
-        ),
-        dtype=np.float64,
+    # get various arrays based on gravity column names
+    grav_residual = grav_array[:, gravity_data.columns.get_loc(gravity_col)]
+    grav_x = grav_array[:, gravity_data.columns.get_loc("x")]
+    grav_y = grav_array[:, gravity_data.columns.get_loc("y")]
+    grav_z = grav_array[:, gravity_data.columns.get_loc("z")]
+
+    # feed above arrays into the jacobian function
+    jac = _jacobian_prism_numba(
+        grav_residual,
+        grav_x,
+        grav_y,
+        grav_z,
+        model,
+        delta,
+        field,
     )
-
-    # prisms_n_density = []
-
-    # for x in range(len(model.easting.values)):
-    #     for y in range(len(model.northing.values)):
-    #         prism_info = (
-    #             model.prism_layer.get_prism((x, y)),
-    #             model.density.values[x, y]
-    #         )
-    #         if any([np.isnan(x).any() for x in prism_info]) is False:
-    #             prisms_n_density.append(prism_info)
-
-    # Build a generator for prisms (doesn't allocate memory, only returns at request)
-    # about half of the cmp. time is here.
-    prisms_n_density = (
-        (model.prism_layer.get_prism((i, j)), model.density.values[i, j])
-        for i in range(model.northing.size)
-        for j in range(model.easting.size)
-    )
-
-    for col, (prism, density) in enumerate(prisms_n_density):
-        # for prisms without any nan's (prisms with thicknesses < threshold)
-        # if any([np.isnan(x).any() for x in (prism, density)]) is False:
-        # Build a small prism ontop of existing prism (thickness equal to delta)
-        bottom = prism[5] - delta / 2
-        top = prism[5] + delta / 2
-        delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
-        jac[:, col] = (
-            hm.prism_gravity(  # other half of comp. time is here.
-                coordinates=(df.x, df.y, df.z),
-                prisms=delta_prism,
-                density=density,
-                field=field,
-            )
-            / delta
-        )
 
     return jac
 
