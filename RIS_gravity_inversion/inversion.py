@@ -645,7 +645,6 @@ def anomalies(
         constraints = df.copy()
     eq_sources = kwargs.get("eq_sources", None)
 
-    crs = kwargs.get("crs", None)
     fill_method = kwargs.get("fill_method", "pygmt")
 
     # if fill_method == "rioxarray" and crs is None:
@@ -1109,13 +1108,13 @@ def solver(
 
 def geo_inversion(
     active_layer: str,
-    layers: dict,
+    layers_dict: dict,
     input_grav: pd.DataFrame,
     buffer_region: list,
     regional_method: str,
     grav_spacing: float,
-    misfit_sq_tolerance: float = 0.00001,
-    delta_misfit_squared_tolerance: float = 0.002,
+    l2_norm_tolerance: float = 1,
+    delta_l2_norm_tolerance: float = 1.001,
     Max_Iterations: int = 3,
     deriv_type: str = "prisms",
     solver_type: str = "least squares",
@@ -1205,10 +1204,11 @@ def geo_inversion(
 
     Returns
     -------
-    tuple
+    list
         iter_corrections: pd.DataFrame with corrections and updated geometry of the
             inversion layer for each iteration.
         gravity: pd.DataFrame with new columns of inversion results
+        layers_update: dict with updated layer geometries
 
     """
 
@@ -1461,6 +1461,7 @@ def geo_inversion(
             f"results/{kwargs.get('fname_gravity', 'gravity_results')}.csv", index=False
         )
 
+    return iter_corrections, gravity, layers_update
 
 
 def density_inversion(
