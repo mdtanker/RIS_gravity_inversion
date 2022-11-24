@@ -901,9 +901,10 @@ def plot_inversion_results(
     # list of iterations, e.g. [1,2,3,4]
     iterations = [int(s[5:][:-15]) for s in misfits]
 
-    # function to give RMS of series
-    def RMS(df):
-        return round(np.sqrt(np.nanmean(df**2).item()), 2)
+    # get grid spacing
+    spacing = layers_dict[active_layer]["spacing"]
+
+
 
     if plot_iters is True:
         misfit_grids = []
@@ -924,7 +925,7 @@ def plot_inversion_results(
             grid = pygmt.xyz2grd(
                 data=topo_results[["x", "y", i]],
                 region=region,
-                spacing=layers[active_layer]["spacing"],
+                spacing=spacing,
                 registration=registration,
                 verbose="q",
             )
@@ -934,7 +935,7 @@ def plot_inversion_results(
             grid = pygmt.xyz2grd(
                 data=topo_results[["x", "y", i]],
                 region=region,
-                spacing=layers[active_layer]["spacing"],
+                spacing=spacing,
                 registration=registration,
                 verbose="q",
             )
@@ -1052,7 +1053,7 @@ def plot_inversion_results(
         final_topo = pygmt.xyz2grd(
             data=topo_results[["x", "y", f"iter_{max(iterations)}_final_top"]],
             region=region,
-            spacing=layers[active_layer]["spacing"],
+            spacing=spacing,
             registration=registration,
             verbose="q",
         )
