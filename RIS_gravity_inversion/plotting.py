@@ -678,8 +678,8 @@ def anomalies_plotting(
         "res",
     ]
 
-    # get RMS value for misfit
-    RMS = round(np.sqrt((df_anomalies.res**2).mean(skipna=True)), 2)
+    # get RMSE value for misfit
+    rmse = inv.RMSE(df_anomalies.res)
 
     # set titles for grids
     plot_titles = [
@@ -688,7 +688,7 @@ def anomalies_plotting(
         "forward gravity",
         "gravity misfit",
         "regional misfit",
-        f"residual misfit: {RMS}mGal",
+        f"residual misfit: {round(rmse, 2)} mGal",
     ]
 
     sub_width = 5
@@ -1004,16 +1004,16 @@ def plot_inversion_results(
 
                 # add subplot titles
                 if column == 0:  # misfit grids
+                    rmse = inv.RMSE(grav_results[f'iter_{row+1}_initial_misfit'])
                     ax[row, column].set_title(
-                        "initial misfit RMS = "
-                        f"{RMS(grav_results[f'iter_{row+1}_initial_misfit'])}mGal"
+                        f"initial misfit RMSE = {round(rmse, 2)} mGal"
                     )
                 elif column == 1:  # topography grids
                     ax[row, column].set_title("updated bathymetry")
                 elif column == 2:  # correction grids
+                    rmse = inv.RMSE(topo_results[f'iter_{row+1}_correction'])
                     ax[row, column].set_title(
-                        "iteration correction RMS = "
-                        f"{RMS(topo_results[f'iter_{row+1}_correction'])}m"
+                        f"iteration correction RMSE = {round(rmse, 2)} m"
                     )
 
                 if constraints is not None:
@@ -1128,8 +1128,8 @@ def plot_inversion_results(
         )
 
         # plot initial misfit - final misfit
-        initial_rms = RMS(grav_results["iter_1_initial_misfit"])
-        final_rms = RMS(grav_results[f"iter_{max(iterations)}_final_misfit"])
+        initial_RMSE = inv.RMSE(grav_results["iter_1_initial_misfit"])
+        final_RMSE = inv.RMSE(grav_results[f"iter_{max(iterations)}_final_misfit"])
         utils.grd_compare(
             initial_misfit,
             final_misfit,
@@ -1138,8 +1138,8 @@ def plot_inversion_results(
             cmap="RdBu_r",
             robust=False,
             verbose="q",
-            grid1_name=f"Initial misfit: RMS={initial_rms}mGal",
-            grid2_name=f"Final misfit: RMS={final_rms}mGal",
+            grid1_name=f"Initial misfit: RMSE={round(initial_RMSE, 2)} mGal",
+            grid2_name=f"Final misfit: RMSE={round(final_RMSE, 2)} mGal",
             title="difference",
             shp_mask=kwargs.get("shp_mask", None),
         )
