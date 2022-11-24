@@ -275,6 +275,7 @@ def import_layers(
 def grids_to_prism_layers(
     layers: dict,
     thickness_threshold: float = 1,
+    registration="p",
 ):
     """
     Turn nested dictionary of grids into series of vertical prisms between each layer.
@@ -355,7 +356,7 @@ def grids_to_prism_layers(
                 tmp_grd = pygmt.xyz2grd(
                     tmp[["x", "y", "z_low"]],
                     region=buffer_region,
-                    registration="p",
+                    registration=registration,
                     spacing=layers[j]["spacing"],
                 )
                 surface = layers[j]["grid"]
@@ -539,6 +540,7 @@ def anomalies(
     grav_spacing: int,
     regional_method: str,
     crs: str = "3031",
+    registration="p",
     **kwargs,
 ):
     """
@@ -686,7 +688,7 @@ def anomalies(
         data=anomalies[["x", "y", "misfit"]],
         region=inversion_region,
         spacing=grav_spacing,
-        registration="p",
+        registration=registration,
     )
 
     # Trend method
@@ -736,7 +738,7 @@ def anomalies(
             data=constraints[["x", "y", "misfit"]],
             spacing=grav_spacing,
             region=inversion_region,
-            registration="p",
+            registration=registration,
         )
 
         # grid the entire region misfit based just on the misfit at the constraints
@@ -744,7 +746,7 @@ def anomalies(
             data=blocked,
             region=inversion_region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             T=kwargs.get("tension_factor", 0.25),
             verbose="q",
         )
@@ -1172,6 +1174,7 @@ def geo_inversion(
     solver_type: str = "least squares",
     max_layer_change_per_iter: float = 100,
     save_results: bool = False,
+    registration="p",
     **kwargs,
 ):
     """
@@ -1374,13 +1377,13 @@ def geo_inversion(
         prisms_grid = pygmt.xyz2grd(
             prisms[["easting", "northing", "top"]],
             region=buffer_region,
-            registration="p",
+            registration=registration,
             spacing=spacing,
         )
         prisms_above_grid = pygmt.xyz2grd(
             prisms_above[["easting", "northing", "bottom"]],
             region=buffer_region,
-            registration="p",
+            registration=registration,
             spacing=spacing,
         )
 

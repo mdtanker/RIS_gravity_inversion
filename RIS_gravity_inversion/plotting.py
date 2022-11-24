@@ -18,6 +18,7 @@ def plot_inputs(
     region: list = None,
     inversion_region: list = None,
     plot_type: str = "xarray",
+    registration="p",
     **kwargs,
 ):
     """
@@ -57,7 +58,7 @@ def plot_inputs(
         data=grav[["x", "y", "Gobs"]],
         region=region,
         spacing=grav_spacing,
-        registration="p",
+        registration=registration,
     )
 
     plotting_constraints = kwargs.get("plotting_constraints", constraint_points_RIS)
@@ -472,6 +473,7 @@ def forward_grav_plotting(
     plot_dists: bool = False,
     plot_power_spectrums: bool = False,
     exclude_layers: list = None,
+    registration="p",
 ):
     """
     Plot results from forward gravity calculations of prism layers.
@@ -532,7 +534,7 @@ def forward_grav_plotting(
             data=df_forward[["x", "y", col]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -628,6 +630,7 @@ def anomalies_plotting(
     df_anomalies: pd.DataFrame,
     region: list = None,
     grav_spacing: float = None,
+    registration="p",
     plot_dists: bool = False,
     plot_power_spectrums: bool = False,
     **kwargs,
@@ -707,7 +710,7 @@ def anomalies_plotting(
             data=df_anomalies[["x", "y", col]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
         anom_grids.append(grid)
@@ -820,6 +823,7 @@ def plot_inversion_results(
     plot_iters: bool = True,
     plot_topo_results: bool = True,
     plot_grav_results: bool = True,
+    registration="p",
     **kwargs,
 ):
     """
@@ -911,7 +915,7 @@ def plot_inversion_results(
                 data=grav_results[["x", "y", i]],
                 region=region,
                 spacing=grav_spacing,
-                registration="p",
+                registration=registration,
                 verbose="q",
             )
             misfit_grids.append(grid)
@@ -921,7 +925,7 @@ def plot_inversion_results(
                 data=topo_results[["x", "y", i]],
                 region=region,
                 spacing=layers[active_layer]["spacing"],
-                registration="p",
+                registration=registration,
                 verbose="q",
             )
             topo_grids.append(grid)
@@ -931,7 +935,7 @@ def plot_inversion_results(
                 data=topo_results[["x", "y", i]],
                 region=region,
                 spacing=layers[active_layer]["spacing"],
-                registration="p",
+                registration=registration,
                 verbose="q",
             )
             corrections_grids.append(grid)
@@ -1034,7 +1038,7 @@ def plot_inversion_results(
             data=topo_results[["x", "y", f"iter_{max(iterations)}_final_top"]],
             region=region,
             spacing=layers[active_layer]["spacing"],
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -1057,7 +1061,7 @@ def plot_inversion_results(
             data=grav_results[["x", "y", "Gobs"]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -1065,7 +1069,7 @@ def plot_inversion_results(
             data=grav_results[["x", "y", f"iter_{max(iterations)}_forward_total"]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -1073,7 +1077,7 @@ def plot_inversion_results(
             data=grav_results[["x", "y", "forward_total"]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -1081,7 +1085,7 @@ def plot_inversion_results(
             data=grav_results[["x", "y", "iter_1_initial_misfit"]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
@@ -1089,7 +1093,7 @@ def plot_inversion_results(
             data=grav_results[["x", "y", f"iter_{max(iterations)}_final_misfit"]],
             region=region,
             spacing=grav_spacing,
-            registration="p",
+            registration=registration,
             verbose="q",
         )
 
