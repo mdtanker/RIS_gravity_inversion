@@ -573,12 +573,6 @@ def anomalies(
     crs : str, optional
         if fill_method = 'rioxarray', set the coordinate reference system to be used
             in rioxarray, by default "3031"
-    Returns
-    -------
-    _type_
-        _description_
-    """
-    """
 
     Other Parameters
     ----------------
@@ -610,6 +604,7 @@ def anomalies(
         block reduce the data to speed up
     depth_type: str
         "relative" or "constant" for depth for eq_sources
+
     Returns
     -------
     pd.DataFrame
