@@ -1050,6 +1050,8 @@ def jacobian_prism(
 def solver(
     jacobian: np.array,
     residuals: np.array,
+    weights: np.array = None,
+    damping: float = None,
     solver_type: str = "least squares",
 ):
     """
@@ -1062,7 +1064,11 @@ def solver(
         prisms.
     residuals : np.array
         array of gravity residuals
-    solver_type : str, optional
+    weights : np.array
+        array of weights to assign to data, typically 1/(uncertainty**2)
+    solver_damping : float
+        positive damping (Tikhonov 0th order) regularization
+    solver_type : {'least squares', 'gauss newton', 'steepest descent'} optional
         choose which solving method to use, by default "least squares"
 
     Returns
@@ -1074,16 +1080,29 @@ def solver(
     if solver_type == "least squares":
         # gives the amount that each column's Z1 needs to change by to have the smallest
         # misfit
-        # finds the least-squares solution to jacobian and Grav_Misfit, assigns the
-        # first value to Surface_correction
-        step = lsqr(jacobian, residuals, show=False)[0]
-    # elif solver_type == 'gauss newton':
-    #     # doesn't currently work
+        # finds the least-squares solution to jacobian and the gravity residual, assigns
+        # the first value to step
+        step = lsqr(
+            jacobian,
+            residuals,
+            show=False,
+            damp=0,
+            )[0]
+    elif solver_type == 'verde least squares':
+        step = vd.base.least_squares(
+            jacobian,
+            residuals,
+            weights = None,
+            damping = damping,
+            copy_jacobian = False,
+            )
+    elif solver_type == 'gauss newton':
+        pass
     #     hessian = jacobian.T @ jacobian
     #     gradient = jacobian.T @ residuals
     #     step = np.linalg.solve(hessian, gradient)
-    # elif solver_type == 'steepest descent':
-    #     # doesn't currently work
+    elif solver_type == 'steepest descent':
+        pass
     #     step = - jacobian.T @ residuals
     return step
 
