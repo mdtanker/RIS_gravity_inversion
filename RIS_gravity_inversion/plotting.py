@@ -814,7 +814,7 @@ def anomalies_plotting(
 def plot_inversion_results(
     grav_results: Union[pd.DataFrame, str],
     topo_results: Union[pd.DataFrame, str],
-    layers: dict,
+    layers_dict: dict,
     active_layer: str,
     grav_spacing: int,
     region: list = None,
@@ -837,7 +837,7 @@ def plot_inversion_results(
     topo_results : pd.DataFrame or str
         Dataframe with corrections and updated geometry of the inversion layer for each
         iteration. Alternatively provide string of csv filename.
-    layers : dict
+    layers_dict : dict
         Nested dict; where each layer is a dict with keys:
             'spacing': int, float; grid spacing
             'fname': str; grid file name
@@ -1048,7 +1048,7 @@ def plot_inversion_results(
                 ax[row, column].set_aspect("equal")
 
     if plot_topo_results is True:
-        initial_topo = layers[active_layer]["grid"]
+        initial_topo = layers_dict[active_layer]["grid"]
 
         final_topo = pygmt.xyz2grd(
             data=topo_results[["x", "y", f"iter_{max(iterations)}_final_top"]],
