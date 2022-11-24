@@ -1129,10 +1129,11 @@ def geo_inversion(
         choose a method to determine the regional gravity misfit.
     grav_spacing : float
         _description_
-    misfit_sq_tolerance : float, optional
-        _description_, by default 0.00001
-    delta_misfit_squared_tolerance : float, optional
-        _description_, by default 0.002
+    l2_norm_tolerance : float, optional
+        end inversion if L2-norm is below this value, by default 1
+    delta_l2_norm_tolerance : float, optional
+        end inversion if L2-norm-updated/L2-norm-previous is above this value, by
+        default 1.001
     Max_Iterations : int, optional
         terminate the inversion after this number of iterations, by default 3
     deriv_type : {'prisms', 'annulus'}, optional
@@ -1199,9 +1200,9 @@ def geo_inversion(
     delta_misfit_squared = np.Inf  # positive infinity
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
     ITER = 0
-    # while delta_misfit_squared (inf) is greater than 1 + least squares tolerance
-    # (0.02)
-    while delta_misfit_squared > 1 + delta_misfit_squared_tolerance:
+
+    # stop inversion if old l2-norm/new l2-norm is < tolerance
+    while delta_l2_norm > delta_l2_norm_tolerance:
         ITER += 1
 
         print(f"\n{'':#<60}##################################\niteration {ITER}")
@@ -1382,32 +1383,45 @@ def geo_inversion(
         updated_RMSE = RMSE(gravity[f"iter_{ITER}_final_misfit"])
         print(f"\nupdated misfit RMSE: {round(updated_RMSE, 2)}")
 
-        layers[active_layer]["inv_grid"] = (
+        # square-root of RMSE is the l-2 norm
+        updated_l2_norm = np.sqrt(updated_RMSE)
+
+        print(f"updated L2-norm: {round(updated_l2_norm, 2)}, ",
+            f"tolerance: {l2_norm_tolerance}")
+
+        # inversion will stop once this gets to delta_l2_norm_tolerance (0.02)
+        updated_delta_l2_norm = l2_norm / updated_l2_norm
+
+        print(f"updated delta L2-norm : {round(updated_delta_l2_norm, 2)}, ",
+            f"tolerance: {delta_l2_norm_tolerance}")
+
+        # update the l2_norm
+        l2_norm = updated_l2_norm
+
+        # updated the delta l2_norm
+        delta_l2_norm = updated_delta_l2_norm
+
             prisms.rename(columns={"easting": "x", "northing": "y"})
             .set_index(["y", "x"])
             .to_xarray()
             .top
         )
 
-        # active_layer_total_difference = (
-        #     layers[active_layer]["inv_grid"] - layers[active_layer]["grid"]
-        # )
-
         if ITER == Max_Iterations:
             print(
-                f"Inversion terminated after {ITER} iterations with least-squares norm",
-                f"= {int(misfit_sq)} because maximum number of iterations ",
+                f"\nInversion terminated after {ITER} iterations with least-squares (L2)",
+                f"norm = {l2_norm} because maximum number of iterations ",
                 f"({Max_Iterations}) reached",
             )
             break
-        # if misfit_sq < misfit_sq_tolerance:
-        #     print(f"Inversion terminated after {ITER} iterations with least-squares
-        #     norm={int(misfit_sq)} because least-squares norm < {misfit_sq_tolerance}")
-        #     break
 
-    # end of inversion iteration WHILE loop
-    if delta_misfit_squared < 1 + delta_misfit_squared_tolerance:
-        print("terminated - no significant variation in least-squares norm ")
+        if l2_norm < l2_norm_tolerance:
+            print(f"\nInversion terminated after {ITER} iterations with L2-norm=",
+            f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}")
+            break
+
+    if delta_l2_norm < delta_l2_norm_tolerance:
+        print("\n no significant variation in L2-norm")
 
     if save_results is True:
         iter_corrections.to_csv(
