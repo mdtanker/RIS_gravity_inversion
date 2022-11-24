@@ -1228,6 +1228,7 @@ def geo_inversion(
     )
 
     spacing = layers_update[active_layer]["spacing"]
+    delta_l2_norm = np.Inf  # positive infinity
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
     ITER = 0
 
