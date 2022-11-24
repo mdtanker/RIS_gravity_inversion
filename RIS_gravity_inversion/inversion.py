@@ -1486,4 +1486,177 @@ def geo_inversion(
             f"results/{kwargs.get('fname_gravity', 'gravity_results')}.csv", index=False
         )
 
-    return iter_corrections, gravity
+
+
+def density_inversion(
+    density_layer,
+    df_grav,
+    layers,
+    max_density_change=2000,
+    grav_spacing=None,
+    input_grav=None,
+    buffer_reg=None,
+    inv_reg=None,
+    buffer_proj=None,
+    plot=True,
+):
+    """
+    Function to invert gravity anomaly to update a prism layer's density.
+    density_layer: str; layer to perform inversion on
+    max_density_change: int, maximum amount to change each prisms density by, in kg/m^3
+    input_grav: xarray.DataSet
+    plot: bool; defaults to True
+    """
+    if input_grav is None:
+        input_grav = df_grav.Gobs_shift_filt
+    # density in kg/m3
+    forward_grav_layers(layers=layers, plot=False)
+    # spacing = layers[density_layer]["spacing"]
+
+    # df_grav['inv_misfit']=df_grav.Gobs_shift-df_grav[f'forward_grav_total']
+    df_grav["inv_misfit"] = input_grav - df_grav["forward_grav_total"]
+
+    # get prisms' coordinates from active layer
+    prisms = layers[density_layer]["prisms"].to_dataframe().reset_index().dropna()
+
+    print(f"active layer average density: {int(prisms.density.mean())}kg/m3")
+
+    MAT_DENS = np.zeros([len(input_grav), len(prisms)])
+
+    initial_RMSE = RMSE(df_grav["inv_misfit"])
+    print(f"initial RMSE = {round(initial_RMSE, 2)} mGal")
+    print("calculating sensitivity matrix to determine density correction")
+
+    prisms_n = []
+    for x in range(len(layers[density_layer]["prisms"].easting.values)):
+        for y in range(len(layers[density_layer]["prisms"].northing.values)):
+            prisms_n.append(
+                layers[density_layer]["prisms"].prism_layer.get_prism((x, y))
+            )
+    for col, prism in enumerate(prisms_n):
+        MAT_DENS[:, col] = hm.prism_gravity(
+            coordinates=(df_grav.x, df_grav.y, df_grav.z),
+            prisms=prism,
+            density=1,  # unit density
+            field="g_z",
+        )
+    # Calculate shift to prism's densities to minimize misfit
+    Density_correction = lsqr(MAT_DENS, df_grav.inv_misfit, show=False)[0]
+
+    # for i,j in enumerate((input_grav)): #add tqdm for progressbar
+    # MAT_DENS[i,:] = gravbox(
+    #     df_grav.y.iloc[i],
+    #     df_grav.x.iloc[i],
+    #     df_grav.z.iloc[i],
+    #     prisms.northing-spacing/2,
+    #     prisms.northing+spacing/2,
+    #     prisms.easting-spacing/2,
+    #     prisms.easting+spacing/2,
+    #     prisms.top,
+    #     prisms.bottom,
+    #     np.ones_like(prisms.density),
+    # )  # unit density, list of ones
+    # # Calculate shift to prism's densities to minimize misfit
+    # Density_correction=lsqr(MAT_DENS,df_grav.inv_misfit,show=False)[0]*1000
+
+    # apply max density change
+    for i in range(0, len(prisms)):
+        if Density_correction[i] > max_density_change:
+            Density_correction[i] = max_density_change
+        elif Density_correction[i] < -max_density_change:
+            Density_correction[i] = -max_density_change
+
+    # resetting the rho values with the above correction
+    prisms["density_correction"] = Density_correction
+    prisms["updated_density"] = prisms.density + prisms.density_correction
+    dens_correction = pygmt.xyz2grd(
+        x=prisms.easting,
+        y=prisms.northing,
+        z=prisms.density_correction,
+        registration="p",
+        region=buffer_reg,
+        spacing=grav_spacing,
+        projection=buffer_proj,
+    )
+    dens_update = pygmt.xyz2grd(
+        x=prisms.easting,
+        y=prisms.northing,
+        z=prisms.updated_density,
+        registration="p",
+        region=buffer_reg,
+        spacing=layers[density_layer]["spacing"],
+        projection=buffer_proj,
+    )
+    initial_misfit = pygmt.xyz2grd(
+        df_grav[["x", "y", "inv_misfit"]],
+        region=inv_reg,
+        spacing=grav_spacing,
+        registration="p",
+    )
+
+    # apply the rho correction to the prism layer
+    layers[density_layer]["prisms"]["density"].values = dens_update.values
+    print(
+        "average density:",
+        f"{int(layers[density_layer]['prisms'].to_dataframe().reset_index().dropna().density.mean())}",  # noqa
+        "kg/m3",
+    )
+    # recalculate forward gravity of active layer
+    print("calculating updated forward gravity")
+    df_grav[f"forward_grav_{density_layer}"] = layers[density_layer][
+        "prisms"
+    ].prism_layer.gravity(coordinates=(df_grav.x, df_grav.y, df_grav.z), field="g_z")
+
+    # Recalculate of gravity misfit, i.e., the difference between calculated and
+    # observed gravity
+    df_grav["forward_grav_total"] = (
+        df_grav.forward_grav_total
+        - df_grav[f"{density_layer}_forward_grav"]
+        + df_grav[f"forward_grav_{density_layer}"]
+    )
+
+    df_grav.inv_misfit = input_grav - df_grav.forward_grav_total
+
+    final_RMSE = RMSE(df_grav.inv_misfit)
+    print(f"RMSE after inversion = {round(final_RMSE, 2)} mGal")
+
+    final_misfit = pygmt.xyz2grd(
+        df_grav[["x", "y", "inv_misfit"]],
+        region=buffer_reg,
+        registration="p",
+        spacing=grav_spacing,
+    )
+
+    if plot is True:
+        grid = initial_misfit
+        fig = maps.plot_grd(
+            grid=grid,
+            cmap="polar+h0",
+            cbar_label=f"initial misfit (mGal) [{round(initial_RMSE, 2)}]",
+        )
+
+        grid = dens_correction
+        fig = maps.plot_grd(
+            grid=grid,
+            cmap="polar+h0",
+            cbar_label="density correction (kg/m3)",
+            origin_shift="xshift",
+        )
+
+        grid = dens_update
+        fig = maps.plot_grd(
+            grid=grid,
+            cmap="viridis",
+            cbar_label="updated density (kg/m3)",
+            origin_shift="xshift",
+        )
+
+        grid = final_misfit
+        fig = maps.plot_grd(
+            grid=grid,
+            cmap="polar+h0",
+            cbar_label=f"final misfit (mGal) [{round(final_RMSE, 2)}]",
+            origin_shift="xshift",
+        )
+
+        fig.show(width=1200)
