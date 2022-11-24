@@ -1130,7 +1130,7 @@ def geo_inversion(
     ----------
     active_layer : str
         layer to invert.
-    layers : dict
+    layers_dict : dict
         Nested dict; where each layer is a dict with keys:
             'spacing': int, float; grid spacing
             'fname': str; grid file name
@@ -1221,13 +1221,13 @@ def geo_inversion(
             "constraints_grid must be applied.",
         )
 
+    layers_update = copy.deepcopy(layers_dict)
+
     include_forward_layers = pd.Series(
-        [k for k, v in layers.items() if k not in kwargs.get("corrections", [])]
+        [k for k, v in layers_update.items() if k not in kwargs.get("corrections", [])]
     )
 
-    spacing = layers[active_layer]["spacing"]
-    misfit_squared_updated = np.Inf  # positive infinity
-    delta_misfit_squared = np.Inf  # positive infinity
+    spacing = layers_update[active_layer]["spacing"]
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
     ITER = 0
 
@@ -1248,9 +1248,9 @@ def geo_inversion(
         print(f"initial delta L2-norm : {round(delta_l2_norm, 2)}")
 
         # get prisms' coordinates from active layer and layer above
-        prisms = layers[active_layer]["prisms"].to_dataframe().reset_index().dropna()
+        prisms = layers_update[active_layer]["prisms"].to_dataframe().reset_index().dropna()
         prisms_above = (
-            layers[include_forward_layers[ind - 1]]["prisms"]
+            layers_update[include_forward_layers[ind - 1]]["prisms"]
             .to_dataframe()
             .reset_index()
             .dropna()
@@ -1266,14 +1266,14 @@ def geo_inversion(
             jac = jacobian_annular(
                 gravity,
                 kwargs.get("input_grav_column", "Gobs"),
-                prisms,
+                layers_update[active_layer]["prisms"],
                 spacing,
             )
         elif deriv_type == "prisms":
             jac = jacobian_prism(
                 gravity,
                 kwargs.get("input_grav_column", "Gobs"),
-                layers[active_layer]["prisms"],
+                layers_update[active_layer]["prisms"],
                 1,
                 "g_z",
             )
@@ -1346,11 +1346,11 @@ def geo_inversion(
             spacing=spacing,
         )
 
-        layers[active_layer]["prisms"].prism_layer.update_top_bottom(
-            surface=prisms_grid, reference=layers[active_layer]["prisms"].bottom
+        layers_update[active_layer]["prisms"].prism_layer.update_top_bottom(
+            surface=prisms_grid, reference=layers_update[active_layer]["prisms"].bottom
         )
-        layers[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
-            surface=layers[include_forward_layers[ind - 1]]["prisms"].top,
+        layers_update[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
+            surface=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
             reference=prisms_above_grid,
         )
 
@@ -1358,13 +1358,13 @@ def geo_inversion(
 
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
 
-        print("calculating updated forward gravity")
-        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers[active_layer][
+        print("updating forward gravity")
+        gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[active_layer][
             "prisms"
         ].prism_layer.gravity(
             coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
         )
-        gravity[f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"] = layers[
+        gravity[f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"] = layers_update[
             include_forward_layers[ind - 1]
         ]["prisms"].prism_layer.gravity(
             coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
@@ -1400,7 +1400,7 @@ def geo_inversion(
 
         print("updating the misfits")
         gravity[f"iter_{ITER}_final_misfit"] = anomalies(
-            layers=layers,
+            layers=layers_update,
             input_grav=gravity,
             grav_spacing=grav_spacing,
             regional_method=regional_method,
@@ -1431,6 +1431,7 @@ def geo_inversion(
         # updated the delta l2_norm
         delta_l2_norm = updated_delta_l2_norm
 
+        layers_update[active_layer]["inv_grid"] = (
             prisms.rename(columns={"easting": "x", "northing": "y"})
             .set_index(["y", "x"])
             .to_xarray()
