@@ -599,7 +599,7 @@ def anomalies(
     fill_method: {'pygmt', 'rioxarray'},
         Choose method to fill nans, by default is 'pygmt'
     tension_factor: float,
-    damping: float
+    eq_damping: float
         smoothness to impose on estimated coefficients
     block_size: float
         block reduce the data to speed up
@@ -763,7 +763,7 @@ def anomalies(
         equivalent_sources = hm.EquivalentSources(
             depth=eq_sources,
             damping=kwargs.get(
-                "damping", None
+                "eq_damping", None
             ),  # float: smoothness to impose on estimated coefficients
             block_size=kwargs.get(
                 "block_size", None
@@ -1159,15 +1159,26 @@ def geo_inversion(
         gravity data.
     input_grav_column : str,
         "Gobs"
-    trend: int,
-        trend order used from calculating regional misfit if
-        regional_method = 'trend'.
+    solver_damping: float,
+        damping parameter for least squares solvers
     filter: str,
         input string for pygmt.grdfilter() for calculating regional misfit if
         regional_method = 'filter', ex. "g200e3" gives a 200km Gaussian filter.
+    trend: int,
+        trend order used from calculating regional misfit if
+        regional_method = 'trend'.
+    fill_method: {'pygmt', 'rioxarray'},
+        Choose method to fill nans, by default is 'pygmt'
     constraints: pd.DataFrame,
         Locations of constraint points to interpolate between for calculating
         regional misfit if regional_method = 'constraints'.
+    tension_factor: float,
+    eq_damping: float
+        smoothness to impose on estimated coefficients
+    block_size: float
+        block reduce the data to speed up
+    depth_type: str
+        "relative" or "constant" for depth for eq_sources
     fname_topo: str
         set csv filename, by default is 'topo_results'
     fname_gravity: str
