@@ -12,6 +12,7 @@ dependencies:
   - scipy
   - matplotlib
   - pyvista
+  - pyvista-xarray
   - harmonica
   - verde
   - xarray
@@ -23,6 +24,7 @@ dependencies:
   - ipykernel
   - proj-data
   - cmocean
+  - numba
   - pip
   - pip:
     - numba-progress
