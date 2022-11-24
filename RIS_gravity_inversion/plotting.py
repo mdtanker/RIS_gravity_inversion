@@ -118,7 +118,7 @@ def plot_inputs(
                     fig.plot(
                         x=plotting_constraints.x,
                         y=plotting_constraints.y,
-                        style="c.1c",
+                        style=f"c{kwargs.get('constraint_size', .1)}c",
                         color="black",
                     )
 
@@ -205,7 +205,7 @@ def plot_inputs(
                         plotting_constraints.x,
                         plotting_constraints.y,
                         "rx",
-                        markersize=1.5,
+                        markersize=kwargs.get("constraint_size", 4),
                         markeredgewidth=0.75,
                     )
         for a in ax:
@@ -747,7 +747,7 @@ def anomalies_plotting(
                     constraints.x,
                     constraints.y,
                     "kx",
-                    markersize=2,
+                    markersize=kwargs.get("constraint_size", 4),,
                     markeredgewidth=1,
                 )
 
@@ -1018,11 +1018,26 @@ def plot_inversion_results(
 
                 if constraints is not None:
                     if column == 0:  # misfit grids
-                        ax[row, column].plot(constraints.x, constraints.y, "k+")
+                        ax[row, column].plot(
+                            constraints.x,
+                            constraints.y,
+                            "k+",
+                            markersize=kwargs.get("constraint_size", 4),,
+                            markeredgewidth=1,)
                     elif column == 1:  # topography grids
-                        ax[row, column].plot(constraints.x, constraints.y, "r+")
+                        ax[row, column].plot(
+                            constraints.x,
+                            constraints.y,
+                            "r+",
+                            markersize=kwargs.get("constraint_size", 4),,
+                            markeredgewidth=1,)
                     elif column == 2:  # correction grids
-                        ax[row, column].plot(constraints.x, constraints.y, "k+")
+                        ax[row, column].plot(
+                            constraints.x,
+                            constraints.y,
+                            "k+",
+                            markersize=kwargs.get("constraint_size", 4),,
+                            markeredgewidth=1,)
 
                 # set axes labels and make proportional
                 ax[row, column].set_xticklabels([])
