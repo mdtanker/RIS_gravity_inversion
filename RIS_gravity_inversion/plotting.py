@@ -9,7 +9,7 @@ import pyvista as pv
 import seaborn as sns
 import verde as vd
 from antarctic_plots import maps, utils
-
+import RIS_gravity_inversion.inversion as inv
 
 def plot_inputs(
     inputs: list,
@@ -206,7 +206,7 @@ def plot_inputs(
                         plotting_constraints.y,
                         "rx",
                         markersize=kwargs.get("constraint_size", 4),
-                        markeredgewidth=0.75,
+                        markeredgewidth=1,
                     )
         for a in ax:
             if inversion_region is not None:
@@ -854,7 +854,7 @@ def plot_inversion_results(
         Choose to save the final inverted topography as a netcdf with an optional kwarg
         filename.
     save_residual_nc : bool
-        Choose to save the initial residual as a netcdf with an optional kwarg
+        Choose to save the final residual as a netcdf with an optional kwarg
         filename.
     plot_iters: bool
         plot individual iteration results
@@ -873,7 +873,7 @@ def plot_inversion_results(
     topo_fname: str
         Customize the name of the saved netcdf file, by default is 'inverted_topo'.
     residual_fname: str
-        Customize the name of the saved netcdf file, by default is 'initial_residual'.
+        Customize the name of the saved netcdf file, by default is 'final_residual'.
     """
     # if results are given as filenames (strings), load into dataframes
     if isinstance(grav_results, str):
@@ -1164,6 +1164,6 @@ def plot_inversion_results(
         final_topo.to_netcdf(f"results/{kwargs.get('topo_fname','inverted_topo')}.nc")
 
     if save_residual_nc is True:
-        initial_misfit.to_netcdf(
-            f"results/{kwargs.get('residual_fname','initial_residual')}.nc"
+        final_misfit.to_netcdf(
+            f"results/{kwargs.get('residual_fname','final_residual')}.nc"
         )
