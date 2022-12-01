@@ -9,9 +9,36 @@ import pyvista as pv
 import seaborn as sns
 import verde as vd
 from antarctic_plots import maps, utils
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 import RIS_gravity_inversion.inversion as inv
 
+def plotly_subplots(grids, titles):
+
+    figures = []
+    for i in grids:
+        img = px.imshow(i)
+        figures.append(img)
+
+    fig = make_subplots(rows=1, cols=len(figures))
+
+    for i, figure in enumerate(figures):
+        for trace in range(len(figure["data"])):
+            # add images
+            fig.append_trace(figure["data"][trace], row=1, col=i+1,)
+            # add titles
+            if titles is not None:
+                fig.add_annotation(xref="x domain",yref="y domain",x=0.5, y=1.2,
+                    showarrow=False, text=f"<b>{titles[i]}</b>", row=1, col=i)
+
+    fig.update_xaxes(
+        scaleanchor = "y",
+        scaleratio = 1,
+        constrain = 'domain',
+    )
+
+    return fig
 
 def plot_inputs(
     inputs: list,
@@ -56,16 +83,24 @@ def plot_inputs(
         # region = vd.get_region((grav.x, grav.y))
 
     # grid gravity data
-    grav_grid = pygmt.xyz2grd(
-        data=grav[["x", "y", "Gobs"]],
-        region=region,
-        spacing=grav_spacing,
-        registration=registration,
-    )
+    # grav_grid = pygmt.xyz2grd(
+    #     data=grav[["x", "y", "Gobs"]],
+    #     region=region,
+    #     spacing=grav_spacing,
+    #     registration=registration,
+    # )
+    # grav_grid = pygmt.surface(
+    #     data=grav[["x", "y", "Gobs"]],
+    #     region=region,
+    #     spacing=grav_spacing,
+    #     T=0.25,
+    #     M="0c",
+    #     registration=registration,
+    # )
 
     plotting_constraints = kwargs.get("plotting_constraints", constraint_points_RIS)
 
-    if kwargs.get("plot_type", "xarray") == "pygmt":
+    if plot_type == "pygmt":
         fig = maps.plot_grd(
             grid=grav_grid,
             fig_height=8,
@@ -126,7 +161,7 @@ def plot_inputs(
 
         fig.show()
 
-    elif kwargs.get("plot_type", "xarray") == "xarray":
+    elif plot_type == "xarray":
         if constraint_grid is not None:
             extra = 2
         else:
@@ -144,20 +179,30 @@ def plot_inputs(
 
         p = 0
         # clip grav grid to region
-        grav_grid = grav_grid.sel(
-            x=slice(region[0], region[1]), y=slice(region[2], region[3])
-        )
-        grav_grid.plot(
-            ax=ax[p],
-            robust=True,
+        # grav_grid = grav_grid.sel(
+        #     x=slice(region[0], region[1]), y=slice(region[2], region[3])
+        # )
+        # grav_grid.plot(
+        #     ax=ax[p],
+        #     robust=True,
+        #     cmap="RdBu_r",
+        #     cbar_kwargs={
+        #         "orientation": "horizontal",
+        #         "anchor": (1, 1),
+        #         "fraction": 0.05,
+        #         "pad": 0.04,
+        #     },
+        # )
+        ax[p].scatter(
+            x=grav.x,
+            y=grav.y,
+            c=grav.Gobs,
+            # s=,
+            marker=".",
             cmap="RdBu_r",
-            cbar_kwargs={
-                "orientation": "horizontal",
-                "anchor": (1, 1),
-                "fraction": 0.05,
-                "pad": 0.04,
-            },
-        )
+            )
+        # ax[p].colorbar()
+
         ax[p].set_title("Observed gravity")
         p += 1
         if constraint_grid is not None:
@@ -476,6 +521,8 @@ def forward_grav_plotting(
     plot_power_spectrums: bool = False,
     exclude_layers: list = None,
     registration="g",
+    block_reduction='pygmt',
+    inversion_region=None,
 ):
     """
     Plot results from forward gravity calculations of prism layers.
@@ -511,7 +558,7 @@ def forward_grav_plotting(
         cols2drop = ~df_forward.columns.str.contains("|".join(exclude_layers))
         df = df_forward[df_forward.columns[cols2drop]]
     else:
-        df = df_forward
+        df = df_forward.copy()
 
     # get list of columns to grid
     cols_to_grid = [x for x in df.columns.to_list() if "forward" in x]
@@ -532,12 +579,20 @@ def forward_grav_plotting(
     forward_grids = []
 
     for i, (col, ax) in enumerate(zip(cols_to_grid, axs.T.ravel())):
-        grid = pygmt.xyz2grd(
-            data=df_forward[["x", "y", col]],
+        # grid = pygmt.xyz2grd(
+        #     data=df[["x", "y", col]],
+        #     region=region,
+        #     spacing=grav_spacing,
+        #     registration=registration,
+        #     verbose="q",
+        # )
+        grid = pygmt.surface(
+            data=df[["x", "y", col]],
             region=region,
             spacing=grav_spacing,
+            T=0.25,
+            M="0c",
             registration=registration,
-            verbose="q",
         )
 
         forward_grids.append(grid)
@@ -556,6 +611,17 @@ def forward_grav_plotting(
                 "pad": 0.04,
             },
         )
+
+        if inversion_region is not None:
+            ax.add_patch(
+                mpl.patches.Rectangle(
+                    xy=(inversion_region[0], inversion_region[2]),
+                    width=(inversion_region[1] - inversion_region[0]),
+                    height=(inversion_region[3] - inversion_region[2]),
+                    linewidth=1,
+                    fill=False,
+                )
+            )
 
         # set column names as titles
         ax.set_title(col)
@@ -708,13 +774,22 @@ def anomalies_plotting(
     anom_grids = []
 
     for i, (col, ax) in enumerate(zip(cols_to_grid, axs.ravel())):
-        grid = pygmt.xyz2grd(
+        # grid = pygmt.xyz2grd(
+        #     data=df_anomalies[["x", "y", col]],
+        #     region=region,
+        #     spacing=grav_spacing,
+        #     registration=registration,
+        #     verbose="q",
+        # )
+        grid = pygmt.surface(
             data=df_anomalies[["x", "y", col]],
             region=region,
             spacing=grav_spacing,
+            T=0.25,
+            M="0c",
             registration=registration,
-            verbose="q",
         )
+
         anom_grids.append(grid)
 
         # plot each grid
@@ -867,9 +942,6 @@ def plot_inversion_results(
     ----------------
     shp_mask: str
         shapefile to use as a mask to set the colormap limits
-    max_layer_change_per_iter : float
-        Use the value set in inversion.geo_inversion(), by default is max absolute value
-        of change in first iteration.
     constraints: pd.DataFrame,
         Locations of constraint points, by default is None.
     topo_fname: str
@@ -890,7 +962,6 @@ def plot_inversion_results(
     # if not supplied, set max correction equal to max absolute value of iter 1
     # correction
     # max_abs = vd.maxabs(topo_results.iter_1_correction)
-    # max_layer_change_per_iter = kwargs.get("max_layer_change_per_iter", max_abs)
 
     # perc = kwargs.get("perc", 0.7)
     constraints = kwargs.get("constraints", None)
@@ -973,7 +1044,10 @@ def plot_inversion_results(
                 if column == 0:  # misfit grids
                     cmap = "RdBu_r"
                     # lims = (-vd.maxabs(j[0]) * perc, vd.maxabs(j[0]) * perc)
-                    lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    maxabs = vd.maxabs(
+                        utils.get_min_max(j[0], kwargs.get("shp_mask", None)))
+                    lims = (-maxabs, maxabs)
                     robust = False
                 elif column == 1:  # topography grids
                     cmap = "gist_earth"
@@ -984,8 +1058,10 @@ def plot_inversion_results(
                     robust = False
                 elif column == 2:  # correction grids
                     cmap = "RdBu_r"
-                    # lims = (-max_layer_change_per_iter, max_layer_change_per_iter)
-                    lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    maxabs = vd.maxabs(
+                        utils.get_min_max(j[0], kwargs.get("shp_mask", None)))
+                    lims = (-maxabs, maxabs)
                     robust = False
 
                 # plot grids
