@@ -879,7 +879,7 @@ def geo_inversion(
     max_iterations: int = 3,
     deriv_type: str = "prisms",
     solver_type: str = "least squares",
-    max_layer_change_per_iter: float = 100,
+    max_layer_change_per_iter: float = None,
     save_results: bool = False,
     registration="g",
     **kwargs,
@@ -1067,12 +1067,13 @@ def geo_inversion(
             f"{int(RMSE(Surface_correction))} m",
         )
 
-        # for i, j in enumerate(prisms):
-        for i in range(0, len(prisms)):
-            if Surface_correction[i] > max_layer_change_per_iter:
-                Surface_correction[i] = max_layer_change_per_iter
-            elif Surface_correction[i] < -max_layer_change_per_iter:
-                Surface_correction[i] = -max_layer_change_per_iter
+        if max_layer_change_per_iter is not None:
+            # for i, j in enumerate(prisms):
+            for i in range(0, len(prisms)):
+                if Surface_correction[i] > max_layer_change_per_iter:
+                    Surface_correction[i] = max_layer_change_per_iter
+                elif Surface_correction[i] < -max_layer_change_per_iter:
+                    Surface_correction[i] = -max_layer_change_per_iter
 
         # add corrections to active prisms layer
         prisms["correction"] = Surface_correction
