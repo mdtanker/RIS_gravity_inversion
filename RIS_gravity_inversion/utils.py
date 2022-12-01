@@ -7,8 +7,12 @@ import harmonica as hm
 import pygmt
 from antarctic_plots import fetch, maps, profile, utils
 from scipy.sparse.linalg import lsqr
+import optuna
+from optuna.visualization import plot_optimization_history
+from optuna.visualization import plot_slice
 
 import RIS_gravity_inversion.inversion as inv
+import RIS_gravity_inversion.plotting as plots
 
 def import_layers(
     layers_list: list,
@@ -252,6 +256,171 @@ def import_layers(
     return outputs
 
 
+class optuna_regional_RMSE:
+    def __init__(self,
+        regional_method,
+        **kwargs,
+        ):
+        self.regional_method = regional_method
+        self.true_regional = kwargs['true_regional']
+        self.layers = kwargs['layers']
+        self.input_grav = kwargs['input_grav']
+        self.grav_spacing = kwargs['grav_spacing']
+        self.inversion_region = kwargs['inversion_region']
+        self.constraints = kwargs['constraints']
+
+    def __call__(self, trial):
+        if self.regional_method == 'filter':
+            param = trial.suggest_int('param', 1e3, 1001e3, step=1e3)
+        elif self.regional_method == 'trend':
+            param = trial.suggest_int('param', 1, 20, step=1)
+        elif self.regional_method == 'constraints':
+            param = trial.suggest_int('param', 0, 10) # later divided by 10
+        elif self.regional_method == 'eq_sources':
+            param = trial.suggest_int('param', 10e3, 10010e3, step=10e3)
+
+        rmse, df = regional_RMSE(
+            true_regional=self.true_regional,
+            layers=self.layers,
+            input_grav=self.input_grav,
+            grav_spacing=self.grav_spacing,
+            inversion_region=self.inversion_region,
+            constraints=self.constraints,
+            regional_method=self.regional_method,
+            param=param,
+        )
+        return rmse
+
+
+def optimize_regional(
+    n_trials,
+    regional_method,
+    plot_history=True,
+    plot_results=True,
+    **kwargs,
+    ):
+    # Create a new study
+    study = optuna.create_study(
+        direction='minimize',
+        )
+
+    # Disable logging
+    optuna.logging.set_verbosity(optuna.logging.ERROR)
+
+    # Invoke optimization of the objective function
+    study.optimize(
+        optuna_regional_RMSE(
+            regional_method,
+            **kwargs,
+            ),
+        n_trials=n_trials,
+        )
+
+    # Print the best result
+    print(f"Method: {regional_method}, best result: {study.best_params}")
+
+    if plot_history is True:
+        plot_optimization_history(study).show()
+
+    if plot_results is True:
+        plot_slice(study).show()
+
+    return study.trials_dataframe()
+
+
+def optimize_regional_loop(
+    n_trials,
+    plot_history=True,
+    plot_results=True,
+    **kwargs,
+    ):
+    study_dfs = []
+    study_names = []
+    for i in ['filter', 'trend', 'constraints', 'eq_sources']:
+        results = optimize_regional(n_trials, i, plot_history, plot_results, **kwargs)
+        study_dfs.append(results)
+        study_names.append(i)
+
+    studies = dict(zip(study_names, study_dfs))
+    return studies
+
+
+class optuna_regional_RMSE_together:
+    def __init__(self,
+        **kwargs,
+        ):
+        self.true_regional = kwargs['true_regional']
+        self.layers = kwargs['layers']
+        self.input_grav = kwargs['input_grav']
+        self.grav_spacing = kwargs['grav_spacing']
+        self.inversion_region = kwargs['inversion_region']
+        self.constraints = kwargs['constraints']
+
+    def __call__(self, trial):
+
+        regional_method = trial.suggest_categorical(
+            'method',
+            ['filter', 'trend', 'constraints', 'eq_sources'],
+        )
+
+        if regional_method == 'filter':
+            param = trial.suggest_int('param', 1e3, 1001e3, step=1e3)
+        elif regional_method == 'trend':
+            param = trial.suggest_int('param', 1, 20, step=1)
+        elif regional_method == 'constraints':
+            param = trial.suggest_int('param', 0, 10) # later divided by 10
+        elif regional_method == 'eq_sources':
+            param = trial.suggest_int('param', 10e3, 10010e3, step=10e3)
+
+        rmse, df = regional_RMSE(
+            true_regional=self.true_regional,
+            layers=self.layers,
+            input_grav=self.input_grav,
+            grav_spacing=self.grav_spacing,
+            inversion_region=self.inversion_region,
+            constraints=self.constraints,
+            regional_method=regional_method,
+            param=param,
+        )
+        return rmse
+
+
+def optimize_regional_together(
+    n_trials,
+    plot_history=True,
+    plot_results=True,
+    **kwargs,
+    ):
+    # Create a new study
+    study = optuna.create_study(
+        direction='minimize',
+        )
+
+    # Disable logging
+    optuna.logging.set_verbosity(optuna.logging.ERROR)
+
+    # Invoke optimization of the objective function
+    study.optimize(
+        optuna_regional_RMSE_together(
+            **kwargs,
+            ),
+        n_trials=n_trials,
+        )
+
+    # Print the best result
+    print(f"Best result: {study.best_params}")
+
+    if plot_history is True:
+        plot_optimization_history(study).show()
+
+    if plot_results is True:
+        plot_slice(study).show()
+
+    result = study.trials_dataframe().sort_values(by='value')
+
+    return result, result.params_method.iloc[0]
+
+
 def brute_optimize_regional(
     num,
     true_regional,
@@ -396,3 +565,58 @@ def regional_RMSE(
     rms = inv.RMSE(df.true_regional-df.reg)
 
     return rms, df_anomalies
+
+
+def plot_best_param(study, regional_method, true_regional, **kwargs):
+
+    print(f"\n{'':#<10} {regional_method} {'':#>10}")
+
+    best = study.sort_values(by='value').iloc[0]
+    print(best[['params_param', 'value']])
+
+    df_anomalies = inv.anomalies(
+        regional_method=regional_method,
+        crs="3031",
+        filter=f"g{best.params_param}",
+        trend=best.params_param,
+        fill_method="pygmt",
+        tension_factor=best.params_param/10,
+        eq_sources=best.params_param,
+        depth_type="relative",
+        eq_damping=None,
+        block_size=kwargs['grav_spacing'],
+        **kwargs,
+    )
+    if regional_method == 'filter':
+        title= f"Method: {regional_method} (g{int(best.params_param/1e3)}km)"
+    elif regional_method == 'trend':
+        title= f"Method: {regional_method} (order={best.params_param})"
+    elif regional_method == 'constraints':
+        title= f"Method: {regional_method} (tension factor={best.params_param/10})"
+    elif regional_method == 'eq_sources':
+        title = f"Method: {regional_method} (Source depth={int(best.params_param/1e3)}km)"
+
+    anom_grids = plots.anomalies_plotting(
+        df_anomalies,
+        region=kwargs['inversion_region'],
+        grav_spacing=kwargs['grav_spacing'],
+        title=title,
+        constraints=kwargs['constraints'],
+    )
+
+    grids = utils.grd_compare(
+        true_regional,
+        anom_grids['reg'],
+        plot=True,
+        region=kwargs['inversion_region'],
+        plot_type='xarray',
+        cmap="RdBu_r",
+        title=title,
+        grid1_name="True regional misfit",
+        grid2_name="best regional misfit",
+    )
+
+
+def plot_best_params_per_method(studies, **kwargs):
+    for k, v in studies.items():
+        plot_best_param(studies[k], k, **kwargs)
