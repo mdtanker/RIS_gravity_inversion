@@ -585,7 +585,6 @@ def grav_column_der(x0, y0, z0, xc, yc, z1, z2, res, rho):
 
 @numba.njit(parallel=True)
 def _jacobian_annular_numba(
-    grav_residual,
     grav_x,
     grav_y,
     grav_z,
@@ -607,11 +606,11 @@ def _jacobian_annular_numba(
     """
 
     jac = np.empty(
-        (len(grav_residual), len(prism_easting)),
+        (len(grav_x), len(prism_easting)),
         dtype=np.float64,
     )
 
-    for i in numba.prange(len(grav_residual)):
+    for i in numba.prange(len(grav_x)):
         jac[i, :] = grav_column_der(
             grav_y[i],
             grav_x[i],
@@ -627,23 +626,20 @@ def _jacobian_annular_numba(
 
 
 def jacobian_annular(
-    gravity_data: pd.DataFrame,
-    gravity_col: str,
+    coordinates: pd.DataFrame,
     model: xr.Dataset,
     spacing: float,
 ):
     """
     Function to calculate the Jacobian matrix using the annular cylinder approximation
-    The resulting Jacobian is a matrix (numpy array) with a row per gravity misfit value
+    The resulting Jacobian is a matrix (numpy array) with a row per gravity observation
     and a column per prism. This approximates the prisms as an annulus, and calculates
     it's vertical gravity derivative.
 
     Parameters
     ----------
-    gravity_data : pd.DataFrame
-        dataframe containing gravity data
-    gravity_col : str
-        column of gravity_data with observed gravity
+    coordinates : pd.DataFrame
+        dataframe containing gravity data coordinates
     model : xr.Dataset
         harmonica.prism_layer, with coordinates:
         easting, northing, top, and bottom, and variables: 'Density'.
@@ -660,14 +656,15 @@ def jacobian_annular(
     prisms = model.to_dataframe().reset_index().dropna()
 
     # convert dataframes to numpy arrays
-    grav_array = gravity_data.to_numpy()
+    coordinates_array = coordinates.to_numpy()
     prisms_array = prisms.to_numpy()
 
     # get various arrays based on gravity column names
-    grav_residual = grav_array[:, gravity_data.columns.get_loc(gravity_col)]
-    grav_x = grav_array[:, gravity_data.columns.get_loc("x")]
-    grav_y = grav_array[:, gravity_data.columns.get_loc("y")]
-    grav_z = grav_array[:, gravity_data.columns.get_loc("z")]
+    grav_x = coordinates_array[:, coordinates.columns.get_loc("x")]
+    grav_y = coordinates_array[:, coordinates.columns.get_loc("y")]
+    grav_z = coordinates_array[:, coordinates.columns.get_loc("z")]
+
+    assert len(grav_x) == len(grav_y) == len(grav_z)
 
     # get various arrays based on prisms column names
     prism_easting = prisms_array[:, prisms.columns.get_loc("easting")]
@@ -678,7 +675,6 @@ def jacobian_annular(
 
     # feed above arrays into the jacobian function
     jac = _jacobian_annular_numba(
-        grav_residual,
         grav_x,
         grav_y,
         grav_z,
@@ -694,7 +690,6 @@ def jacobian_annular(
 
 
 def _jacobian_prism_numba(
-    grav_residual,
     grav_x,
     grav_y,
     grav_z,
@@ -713,7 +708,7 @@ def _jacobian_prism_numba(
 
     jac = np.empty(
         (
-            len(grav_residual),
+            len(grav_x),
             # np.count_nonzero(~np.isnan(model.top.values))),
             model.top.size,
         ),
@@ -762,8 +757,7 @@ def _jacobian_prism_numba(
 
 
 def jacobian_prism(
-    gravity_data: pd.DataFrame,
-    gravity_col: str,
+    coordinates: pd.DataFrame,
     model: xr.Dataset,
     delta: float,
     field: str,
@@ -774,10 +768,8 @@ def jacobian_prism(
 
     Parameters
     ----------
-    gravity_data : pd.DataFrame
-        dataframe containing gravity data
-    gravity_col : str
-        column of gravity_data with observed gravity
+    coordinates : pd.DataFrame
+        dataframe containing gravity observation coordinates
     model : xr.Dataset
         harmonica.prism_layer, with coordinates:
         easting, northing, top, and bottom, and variables: 'Density'.
@@ -793,17 +785,17 @@ def jacobian_prism(
     """
 
     # convert dataframes to numpy arrays
-    grav_array = gravity_data.to_numpy()
+    coordinates_array = coordinates.to_numpy()
 
     # get various arrays based on gravity column names
-    grav_residual = grav_array[:, gravity_data.columns.get_loc(gravity_col)]
-    grav_x = grav_array[:, gravity_data.columns.get_loc("x")]
-    grav_y = grav_array[:, gravity_data.columns.get_loc("y")]
-    grav_z = grav_array[:, gravity_data.columns.get_loc("z")]
+    grav_x = coordinates_array[:, coordinates.columns.get_loc("x")]
+    grav_y = coordinates_array[:, coordinates.columns.get_loc("y")]
+    grav_z = coordinates_array[:, coordinates.columns.get_loc("z")]
+
+    assert len(grav_x) == len(grav_y) == len(grav_z)
 
     # feed above arrays into the jacobian function
     jac = _jacobian_prism_numba(
-        grav_residual,
         grav_x,
         grav_y,
         grav_z,
@@ -1035,14 +1027,12 @@ def geo_inversion(
         if deriv_type == "annulus":  # major issue with grav_column_der, way too slow
             jac = jacobian_annular(
                 gravity,
-                kwargs.get("input_grav_column", "Gobs"),
                 layers_update[active_layer]["prisms"],
                 spacing,
             )
         elif deriv_type == "prisms":
             jac = jacobian_prism(
                 gravity,
-                kwargs.get("input_grav_column", "Gobs"),
                 layers_update[active_layer]["prisms"],
                 1,
                 "g_z",
