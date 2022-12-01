@@ -25,6 +25,11 @@ dependencies:
   - proj-data
   - cmocean
   - numba
+  - optuna
+  - plotly
+  - hvplot
+  - jupyter_bokeh
+  - jupyterlab
   - pip
   - pip:
     - numba-progress
