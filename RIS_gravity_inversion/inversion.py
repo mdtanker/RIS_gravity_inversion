@@ -901,7 +901,8 @@ def geo_inversion(
             'len': int, number of prisms in the layer
             'prisms': xarray.DataSet, harmonica.prism_layer
     input_grav : pd.DataFrame
-        input gravity data with anomaly columns
+        input gravity data, if contains anomaly columns will use them, if not, will
+        calculate them
     buffer_region : list
         region including buffer zone, by default reads region from first grid layer
     regional_method : {'trend', 'filter', 'constraints', 'eq_sources'}
@@ -982,6 +983,18 @@ def geo_inversion(
             "constraints_grid must be applied.",
         )
 
+    if set(['misfit', 'res', 'reg']).issubset(input_grav.columns):
+        gravity = input_grav.copy()
+    else:
+        gravity = anomalies(
+            layers=layers_dict,
+            input_grav=input_grav,
+            grav_spacing=grav_spacing,
+            regional_method=regional_method,
+            registration=registration,
+            **kwargs,
+        )
+
     layers_update = copy.deepcopy(layers_dict)
 
     include_forward_layers = pd.Series(
@@ -997,7 +1010,7 @@ def geo_inversion(
     for ITER, _ in enumerate(range(max_iterations), start=1):
         print(f"\n{'':#<60}##################################\niteration {ITER}")
         if ITER == 1:
-            gravity = input_grav.copy()
+            pass
         else:
             gravity["res"] = gravity[f"iter_{ITER-1}_final_misfit"]
 
