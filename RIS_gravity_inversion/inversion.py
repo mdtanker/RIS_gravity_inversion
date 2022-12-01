@@ -738,8 +738,8 @@ def _jacobian_prism_numba(
         # for prisms without any nan's (prisms with thicknesses < threshold)
         # if any([np.isnan(x).any() for x in (prism, density)]) is False:
         # Build a small prism ontop of existing prism (thickness equal to delta)
-        bottom = prism[5] - delta / 2
-        top = prism[5] + delta / 2
+        bottom = prism[5] #- delta / 2
+        top = prism[5] + delta #/ 2
         delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
 
         jac[:, col] = (
