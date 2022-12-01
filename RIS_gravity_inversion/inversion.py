@@ -470,12 +470,16 @@ def anomalies(
 
         trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.z)
         anomalies["reg"] = trend.predict((anomalies.x, anomalies.y))
-        anomalies["res"] = anomalies.misfit - anomalies.reg
 
     # Filter method
     elif regional_method == "filter":
         # filter the observed-forward misfit with the provided filter in meters
-        regional_misfit = pygmt.grdfilter(misfit, filter=filter, distance="0")
+        regional_misfit = pygmt.grdfilter(
+            misfit,
+            filter=filter,
+            distance="0",
+            registration=registration,
+            )
         # sample the results and merge into the anomalies dataframe
         tmp_regrid = pygmt.grdtrack(
             points=anomalies[["x", "y"]],
@@ -484,7 +488,6 @@ def anomalies(
             verbose="q",
         )
         anomalies = anomalies.merge(tmp_regrid, on=["x", "y"], how="left")
-        anomalies["res"] = anomalies.misfit - anomalies.reg
 
     # Constraints method
     elif regional_method == "constraints":
@@ -520,9 +523,6 @@ def anomalies(
             name="reg",
         )
 
-        # calculate the residual
-        anomalies["res"] = anomalies.misfit - anomalies.reg
-
     # Equivalent sources method
     elif regional_method == "eq_sources":
         # create set of deep sources
@@ -543,8 +543,9 @@ def anomalies(
         equivalent_sources.fit(coordinates, anomalies.misfit)
         # use sources to predict the regional field at the observation points
         anomalies["reg"] = equivalent_sources.predict(coordinates)
-        # calculate the residual field
-        anomalies["res"] = anomalies.misfit - anomalies.reg
+
+    # calculate the residual field
+    anomalies["res"] = anomalies.misfit - anomalies.reg
 
     # rmse = RMSE(anomalies.res)
     # print(f"Misfit RMSE: {round(rmse, 2)} mGal")
