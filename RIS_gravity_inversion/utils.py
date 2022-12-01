@@ -1,320 +1,398 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import verde as vd
+import xarray as xr
+import pandas as pd
+import harmonica as hm
+import pygmt
+from antarctic_plots import fetch, maps, profile, utils
+from scipy.sparse.linalg import lsqr
 
+import RIS_gravity_inversion.inversion as inv
 
-def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
+def import_layers(
+    layers_list: list,
+    spacing_list: list,
+    rho_list: list,
+    fname_list: list,
+    grav_spacing: float,
+    active_layer: str,
+    buffer_region: list,
+    inversion_region: list,
+    grav_file: str,
+    registration="g",
+    **kwargs,
+):
     """
-    From Fatiando-Legacy
-    Non-normalized 2D Gaussian function
+    Read zarrs and csvs, resample/rename to be uniform, and add to layers dictionary
 
-    Parameters:
+    Parameters
+    ----------
+    layers_list : list
+        list of names of layers
+    spacing_list : list
+        list of grid spacing of layers, in meters
+    rho_list : list
+        list of densities to use for layers, in kg/m3
+    fname_list : list
+        list of zarr file names for input grids
+    grav_spacing : float
+        spacing to resample gravity grid at
+    active_layer : str
+        layer which will be inverted for
+    buffer_region : list
+        inversion region with a buffer zone included
+    inversion_region : list
+       inversion region
+    grav_file : str
+        csv file with gravity point observation data
+    registration: str
+        choose grid registration type for input layers and constraints grid, by default
+        "g"
 
-    * x, y : float or arrays
-        Coordinates at which to calculate the Gaussian function
-    * sigma_x, sigma_y : float
-        Standard deviation in the x and y directions
-    * x0, y0 : float
-        Coordinates of the center of the distribution
-    * angle : float
-        Rotation angle of the gaussian measure from the x axis (north) growing
-        positive to the east (positive y axis)
+    Other Parameters
+    ----------------
+    constraint_grid: str
+        .nc file of a constraint grid, 0-1.
+    constraint_points: str
+        .csv file with position of constraints
+    input_grav_name: str
+        column name of observed gravity / freeair / disturbance
+    input_obs_height_name: str
+        column name of gravity station elevation
+    block_reduction: str
+        choose type of block reduction to apply to gravity data
 
-    Returns:
-
-    * gauss : array
-        Gaussian function evaluated at *x*, *y*
-
+    Returns
+    -------
+    tuple
+        layers (dict),
+        grav (pd.DataFrame),
+        constraint_grid (xr.DataArray),
+        constraint_points (pd.DataFrame),
+        constraint_points_RIS (pd.DataFrame)
     """
-    theta = -1 * angle * np.pi / 180.0
-    tmpx = 1.0 / sigma_x**2
-    tmpy = 1.0 / sigma_y**2
-    sintheta = np.sin(theta)
-    costheta = np.cos(theta)
-    a = tmpx * costheta + tmpy * sintheta**2
-    b = (tmpy - tmpx) * costheta * sintheta
-    c = tmpx * sintheta**2 + tmpy * costheta**2
-    xhat = x - x0
-    yhat = y - y0
-    return np.exp(-(a * xhat**2 + 2.0 * b * xhat * yhat + c * yhat**2))
 
+    constraint_grid = kwargs.get("constraint_grid", None)
+    constraint_points = kwargs.get("constraint_points", None)
 
-def exponential_surface(
-    x,
-    y,
-    region,
-    base_level,
-    scaling,
-    decay,
-    x_shift=0,
-    y_shift=0,
-):
-    # get x and y range
-    x_range = abs(region[1] - region[0])
-    y_range = abs(region[3] - region[2])
+    input_grav_name = kwargs.get("input_grav_name", "gravity_disturbance")
+    input_obs_height_name = kwargs.get("input_obs_height_name", "ellipsoidal_elevation")
 
-    x_center = x - (region[0] + x_range / 2)
-    y_center = y - (region[2] + y_range / 2)
+    layers_list = pd.Series(layers_list)
+    spacing_list = pd.Series(spacing_list)
+    rho_list = pd.Series(rho_list)
+    fname_list = pd.Series(fname_list)
 
-    func = np.exp(-((x_center - x_shift) ** 2 + (y_center - y_shift) ** 2) / decay)
-
-    return base_level + (scaling * func)
-
-
-def synthetic_topography_simple(
-    spacing,
-    region,
-    plot_individuals=False,
-):
-
-    # create grid of coordinates
-    (x, y) = vd.grid_coordinates(region=region, spacing=spacing)
-
-    # get x and y range
-    x_range = abs(region[1] - region[0])
-    y_range = abs(region[3] - region[2])
-
-    # create topographic features
-    feature1 = exponential_surface(
-        x, y, region, -3500, -600, 1e11, x_range * 0.4, y_range * -0.2
+    # read gravity csv file
+    df = pd.read_csv(
+        grav_file,
+        sep=",",
+        header="infer",
+        index_col=None,
+        compression="gzip",
     )
-    feature2 = (
-        gaussian2d(
-            x,
-            y,
-            sigma_x=x_range * 3,
-            sigma_y=y_range * 0.4,
-            x0=region[0] + x_range * 0.2,
-            y0=region[2] + y_range * 0.6,
-            angle=10,
+
+    # remove other columns
+    df = df[["x", "y", input_grav_name, input_obs_height_name]]
+
+    # remove points outside of inversion region
+    df = utils.points_inside_region(df, region=inversion_region)
+
+    # get number of grav points before reduction
+    prior_len = len(df[input_grav_name])
+
+    # block reduce gravity data
+    if kwargs.get("block_reduction", None) is None:
+        grav = df.copy()
+    elif kwargs.get("block_reduction", None) == "pygmt":
+        grav = pygmt.blockmedian(
+            df[["x", "y", input_grav_name]],
+            spacing=grav_spacing,
+            region=inversion_region,
+            registration=registration,
         )
-        * -600
-    )
-    feature3 = (
-        gaussian2d(
-            x,
-            y,
-            sigma_x=x_range * 0.2,
-            sigma_y=y_range * 7,
-            x0=region[0] + x_range * 0.8,
-            y0=region[2] + y_range * 0.3,
-            angle=80,
+
+        grav[input_obs_height_name] = pygmt.blockmedian(
+            df[["x", "y", input_obs_height_name]],
+            spacing=grav_spacing,
+            region=inversion_region,
+            registration=registration,
+        )[input_obs_height_name]
+
+    elif kwargs.get("block_reduction", None) == "verde":
+        reducer = vd.BlockReduce(
+            reduction=np.median,
+            spacing=grav_spacing,
+            # center_coordinates=False,
+            # adjust="region",
         )
-        * 1000
-    )
 
-    features = [feature1, feature2, feature3]
-
-    topo = sum(features)
-
-    grid = vd.make_xarray_grid((x, y), topo, data_names="z", dims=("y", "x")).z
-
-    if plot_individuals is True:
-        sub_width = 5
-        nrows, ncols = 1, len(features)
-
-        fig, ax = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(sub_width * ncols, sub_width * nrows),
+        coordinates, data = reducer.filter(
+            coordinates=(df.x, df.y),
+            data=(
+                df[input_grav_name],
+                df[input_obs_height_name],
+            ),
         )
-        for i, (f, ax) in enumerate(zip(features, ax.T.ravel())):
-            feature = vd.make_xarray_grid((x, y), f, data_names="z", dims=("y", "x")).z
-            feature.plot(
-                ax=ax,
-                x="x",
-                y="y",
-                cbar_kwargs={
-                    "orientation": "horizontal",
-                    "anchor": (1, 1),
-                    "fraction": 0.05,
-                    "pad": 0.04,
-                },
-            )
-            # set axes labels and make proportional
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            ax.set_xlabel("")
-            ax.set_ylabel("")
-            ax.set_aspect("equal")
 
-    return grid
-
-
-def synthetic_topography(
-    spacing,
-    region,
-    plot_individuals=False,
-):
-
-    # create grid of coordinates
-    (x, y) = vd.grid_coordinates(region=region, spacing=spacing)
-
-    # get x and y range
-    x_range = abs(region[1] - region[0])
-    y_range = abs(region[3] - region[2])
-
-    # create topographic features
-    # regional
-    feature1 = exponential_surface(
-        x, y, region, -500, -600, 1e11, x_range * 0.4, y_range * -0.2
-    )
-    feature2 = exponential_surface(
-        x, y, region, -500, 300, 1e10, x_range * -0.2, y_range * -0.3
-    )
-
-    # high-frequency
-    feature3 = exponential_surface(
-        x, y, region, -500, -150, 1e8, x_range * 0.2, y_range * 0.2
-    )
-    feature4 = exponential_surface(
-        x, y, region, -500, 250, 5e7, x_range * -0.1, y_range * -0.2
-    )
-    feature5 = (
-        gaussian2d(
-            x,
-            y,
-            sigma_x=x_range * 0.03,
-            sigma_y=y_range * 0.5,
-            x0=region[0] + x_range * 0.2,
-            y0=region[2] + y_range * 0.4,
-            angle=20,
+        blocked = pd.DataFrame(
+            data={
+                "x": coordinates[0],
+                "y": coordinates[1],
+                input_grav_name: data[0],
+                input_obs_height_name: data[1],
+            },
         )
-        * -400
-    )
-    feature6 = (
-        gaussian2d(
-            x,
-            y,
-            sigma_x=x_range * 1,
-            sigma_y=y_range * 0.05,
-            x0=region[0] + x_range * 0.8,
-            y0=region[2] + y_range * 0.4,
-            angle=45,
-        )
-        * 200
-    )
+        grav = blocked[vd.inside((blocked.x, blocked.y), inversion_region)].copy()
 
-    features = [feature1, feature2, feature3, feature4, feature5, feature6]
+    post_len = len(grav[input_grav_name])
 
-    topo = sum(features)
-
-    grid = vd.make_xarray_grid((x, y), topo, data_names="z", dims=("y", "x")).z
-
-    if plot_individuals is True:
-        sub_width = 5
-        nrows, ncols = 1, len(features)
-
-        fig, ax = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(sub_width * ncols, sub_width * nrows),
-        )
-        for i, (f, ax) in enumerate(zip(features, ax.T.ravel())):
-            feature = vd.make_xarray_grid((x, y), f, data_names="z", dims=("y", "x")).z
-            feature.plot(
-                ax=ax,
-                x="x",
-                y="y",
-                cbar_kwargs={
-                    "orientation": "horizontal",
-                    "anchor": (1, 1),
-                    "fraction": 0.05,
-                    "pad": 0.04,
-                },
-            )
-            # set axes labels and make proportional
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            ax.set_xlabel("")
-            ax.set_ylabel("")
-            ax.set_aspect("equal")
-
-    return grid
-
-
-def contaminate(data, stddev, percent=False, return_stddev=False, seed=None):
-    r"""
-    From Fatiando-legacy
-
-    Add pseudorandom gaussian noise to an array.
-
-    Noise added is normally distributed with zero mean.
-
-    Parameters:
-
-    * data : array or list of arrays
-        Data to contaminate
-    * stddev : float or list of floats
-        Standard deviation of the Gaussian noise that will be added to *data*
-    * percent : True or False
-        If ``True``, will consider *stddev* as a decimal percentage and the
-        standard deviation of the Gaussian noise will be this percentage of
-        the maximum absolute value of *data*
-    * return_stddev : True or False
-        If ``True``, will return also the standard deviation used to
-        contaminate *data*
-    * seed : None or int
-        Seed used to generate the pseudo-random numbers. If `None`, will use a
-        different seed every time. Use the same seed to generate the same
-        random sequence to contaminate the data.
-
-    Returns:
-
-    if *return_stddev* is ``False``:
-
-    * contam : array or list of arrays
-        The contaminated data array
-
+    if kwargs.get("block_reduction", None) is None:
+        print(f"{prior_len} gravity observation points")
     else:
+        print(f"Block-reduced the gravity data at {int(grav_spacing)}m spacing")
+        print(f"from {prior_len} points to {post_len} points")
 
-    * results : list = [contam, stddev]
-        The contaminated data array and the standard deviation used to
-        contaminate it.
+    # center gravity around 0
+    grav[input_grav_name] -= grav[input_grav_name].mean()
 
-    Examples:
+    # set standard names
+    grav.rename(
+        columns={input_grav_name: "Gobs", input_obs_height_name: "z"},
+        inplace=True,
+    )
 
-    >>> import np as np
-    >>> data = np.ones(5)
-    >>> noisy = contaminate(data, 0.1, seed=0)
-    >>> print noisy
-    [ 1.03137726  0.89498775  0.95284582  1.07906135  1.04172782]
-    >>> noisy, std = contaminate(data, 0.05, seed=0, percent=True,
-    ...                          return_stddev=True)
-    >>> print std
-    0.05
-    >>> print noisy
-    [ 1.01568863  0.94749387  0.97642291  1.03953067  1.02086391]
-    >>> data = [np.zeros(5), np.ones(3)]
-    >>> noisy = contaminate(data, [0.1, 0.2], seed=0)
-    >>> print noisy[0]
-    [ 0.03137726 -0.10501225 -0.04715418  0.07906135  0.04172782]
-    >>> print noisy[1]
-    [ 0.81644754  1.20192079  0.98163167]
+    # make nested dictionary for layers and properties
+    layers = {
+        j: {"spacing": spacing_list[i], "fname": fname_list[i], "rho": rho_list[i]}
+        for i, j in enumerate(layers_list)
+    }
 
-    """
-    np.random.seed(seed)
-    # Check if dealing with an array or list of arrays
-    if not isinstance(stddev, list):
-        stddev = [stddev]
-        data = [data]
-    contam = []
-    for i in range(len(stddev)):
-        if stddev[i] == 0.0:
-            contam.append(data[i])
-            continue
-        if percent:
-            stddev[i] = stddev[i] * max(abs(data[i]))
-        noise = np.random.normal(scale=stddev[i], size=len(data[i]))
-        # Subtract the mean so that the noise doesn't introduce a systematic
-        # shift in the data
-        noise -= noise.mean()
-        contam.append(np.array(data[i]) + noise)
-    np.random.seed()
-    if len(contam) == 1:
-        contam = contam[0]
-        stddev = stddev[0]
-    if return_stddev:
-        return [contam, stddev]
-    else:
-        return contam
+    # read and resample layer grids, convert to dataframes
+    for k, v in layers.items():
+        tmp_grid = xr.open_zarr(v["fname"])
+        tmp_grid = tmp_grid[list(tmp_grid.keys())[0]].squeeze()
+        print(f"\n{'':*<20}Resampling {k} layer {'':*>20}")
+        v["grid"] = fetch.resample_grid(
+            tmp_grid,
+            spacing=v["spacing"],
+            region=buffer_region,
+            registration=registration,
+            verbose="q",
+        )
+
+        # print spacing, region, max,min, and registration of layers
+        print(f"{k} info: {utils.get_grid_info(v['grid'])}")
+
+        v["df"] = v["grid"].to_dataframe().reset_index()
+        v["df"]["rho"] = v["rho"]
+        v["df"].dropna(how="any", inplace=True)
+        v["len"] = len(v["df"].x)
+
+    if constraint_grid is not None:
+        # open zarr file
+        tmp_grid = xr.open_zarr(constraint_grid).to_array().squeeze()
+        # resample constraint grid
+        print(f"\n{'':*<20}Resampling constraints grid {'':*>20}")
+        constraint_grid = fetch.resample_grid(
+            tmp_grid,
+            spacing=layers[active_layer]["spacing"],
+            region=buffer_region,
+            registration=registration,
+            verbose="q",
+        )
+        # print spacing, region, max,min, and registration of constraint grid
+        print(f"constraint grid: {utils.get_grid_info(constraint_grid)}")
+
+    if constraint_points is not None:
+        # load constraint points into a dataframe, and create a subset within region
+        constraint_points_all = pd.read_csv(
+            constraint_points,
+            sep=",",
+            header="infer",
+            index_col=None,
+            compression="gzip",
+        )
+
+        constraint_points = utils.points_inside_region(
+            constraint_points_all,
+            inversion_region,
+        )
+
+        if kwargs.get("subset_constraints", True) is True:
+            constraint_points_RIS = pygmt.select(
+                data=constraint_points,
+                F=kwargs.get("shapefile", "plotting/RIS_outline.shp"),
+                coltypes="o",
+            )
+
+    print(f"gravity: {len(grav)} points")
+    print(f"gravity avg. elevation: {int(np.nanmean(grav.z))}")
+
+    if constraint_points is not None:
+        print(f"bathymetry control points:{len(constraint_points)}")
+        if kwargs.get("subset_constraints", True) is True:
+            print(f"bathymetry control points within RIS:{len(constraint_points_RIS)}")
+
+    grav.Gobs = grav.Gobs.astype(np.float64)
+    grav.z = grav.z.astype(np.float64)
+    grav.x = grav.x.astype(np.float64)
+    grav.y = grav.y.astype(np.float64)
+
+    outputs = [layers, grav, None, None, None]
+
+    if constraint_grid is not None:
+        outputs[2] = constraint_grid
+    if constraint_points is not None:
+        outputs[3] = constraint_points
+        if kwargs.get("subset_constraints", True) is True:
+            outputs[4] = constraint_points_RIS
+
+    return outputs
+
+
+def brute_optimize_regional(
+    num,
+    true_regional,
+    layers,
+    input_grav,
+    grav_spacing,
+    inversion_region,
+    constraints,
+    plot_best=True,
+    plot_all=False,
+    ):
+
+    filters = np.linspace(1, 1000e3, num)
+    trends = np.linspace(1, 20, num).astype(int)
+    tensions = np.linspace(0.1, 1, num)
+    depths = np.linspace(10e3, 10e6, num)
+
+    data = {
+        'filter': filters,
+        'trend': trends,
+        'constraints': tensions,
+        'eq_sources': depths,}
+
+    params = pd.DataFrame(data)
+
+    for regional_method in params.columns:
+        rms_values=[]
+        print(regional_method)
+        for i, j in enumerate(params[regional_method]):
+            if regional_method == 'constraints':
+                j=j/10
+            rms, df_anomalies = regional_RMSE(
+                true_regional=true_regional,
+                layers=layers,
+                input_grav=input_grav,
+                grav_spacing=grav_spacing,
+                inversion_region=inversion_region,
+                constraints=constraints,
+                regional_method=regional_method,
+                param=j,
+            )
+
+            rms_values.append(rms)
+
+            if plot_all is True:
+                regional = pygmt.surface(
+                    data=df_anomalies[["x", "y", "reg"]],
+                    region=inversion_region,
+                    spacing=grav_spacing,
+                    T=0.25,
+                    M="0c",
+                    registration="g",
+                )
+                grids = utils.grd_compare(
+                    true_regional,
+                    regional,
+                    plot=True,
+                    plot_type='xarray',
+                    grid1_name="true regional",
+                    grid2_name=f"calculated regional: parameter={j}",
+                    title=f"Method: {regional_method}, RMSE: {round(rms,2)}mGal",
+                    points=constraints,
+                    )
+
+        params[f"{regional_method}_RMSE"]=rms_values
+
+        if plot_best is True:
+
+            best = params.sort_values(by=f"{regional_method}_RMSE", ascending=True)
+            j = best[regional_method].iloc[0]
+            if regional_method == 'constraints':
+                j=j/10
+            rms, df_anomalies = regional_RMSE(
+                true_regional=true_regional,
+                layers=layers,
+                input_grav=input_grav,
+                grav_spacing=grav_spacing,
+                inversion_region=inversion_region,
+                constraints=constraints,
+                regional_method=regional_method,
+                param=j,
+            )
+
+            rms_values.append(rms)
+
+            regional = pygmt.surface(
+                data=df_anomalies[["x", "y", "reg"]],
+                region=inversion_region,
+                spacing=grav_spacing,
+                T=0.25,
+                M="0c",
+                registration="g",
+            )
+            grids = utils.grd_compare(
+                true_regional,
+                regional,
+                plot=True,
+                plot_type='xarray',
+                grid1_name="true regional",
+                grid2_name=f"calculated regional: parameter={j}",
+                title=f"Method: {regional_method}, RMSE: {round(rms,2)}mGal",
+                points=constraints,
+                )
+    return params
+
+def regional_RMSE(
+    true_regional,
+    layers,
+    input_grav,
+    grav_spacing,
+    inversion_region,
+    constraints,
+    regional_method,
+    param
+):
+
+    df_anomalies = inv.anomalies(
+        layers=layers,
+        input_grav=input_grav,
+        grav_spacing=grav_spacing,
+        regional_method=regional_method,
+
+        # KWARGS
+        inversion_region=inversion_region,
+        # filter kwargs
+        filter=f"g{param}",
+        # trend kwargs
+        trend=param,
+        fill_method="pygmt",
+        # fill_method='rioxarray',
+        # constraint kwargs
+        constraints=constraints,
+        tension_factor=param/10,
+        # eq sources kwargs
+        eq_sources=param,
+        depth_type="relative",
+        eq_damping=None,
+        block_size=grav_spacing,
+    )
+
+    df = profile.sample_grids(df_anomalies, true_regional, "true_regional")
+    rms = inv.RMSE(df.true_regional-df.reg)
+
+    return rms, df_anomalies
