@@ -1,14 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import verde as vd
-import xarray as xr
-import pandas as pd
-import harmonica as hm
-import pygmt
-from antarctic_plots import fetch, maps, profile, utils
-from scipy.sparse.linalg import lsqr
-
-import RIS_gravity_inversion.inversion as inv
 
 
 def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
@@ -77,16 +69,16 @@ def synthetic_topography_regional(
 ):
 
     if registration == "g":
-        pixel_register=False
+        pixel_register = False
     elif registration == "p":
-        pixel_register=True
+        pixel_register = True
 
     # create grid of coordinates
     (x, y) = vd.grid_coordinates(
         region=region,
         spacing=spacing,
         pixel_register=pixel_register,
-        )
+    )
 
     # get x and y range
     x_range = abs(region[1] - region[0])
@@ -130,7 +122,7 @@ def synthetic_topography_regional(
         topo,
         data_names="z",
         dims=("y", "x"),
-        ).z
+    ).z
 
     if plot_individuals is True:
         sub_width = 5
@@ -172,16 +164,16 @@ def synthetic_topography(
 ):
 
     if registration == "g":
-        pixel_register=False
+        pixel_register = False
     elif registration == "p":
-        pixel_register=True
+        pixel_register = True
 
     # create grid of coordinates
     (x, y) = vd.grid_coordinates(
         region=region,
         spacing=spacing,
         pixel_register=pixel_register,
-        )
+    )
 
     # get x and y range
     x_range = abs(region[1] - region[0])
@@ -193,98 +185,131 @@ def synthetic_topography(
         x,
         y,
         region,
-        base_level = -300,
-        scaling = -500,
-        decay = 1e12,
-        x_shift = x_range * 0.4,
-        y_shift = y_range * -0.2,
-
+        base_level=-300,
+        scaling=-500,
+        decay=1e12,
+        x_shift=x_range * 0.4,
+        y_shift=y_range * -0.2,
     )
     f2 = exponential_surface(
         x,
         y,
         region,
-        base_level = 0,
-        scaling = 200,
-        decay = 1e11,
-        x_shift = x_range * -0.2,
-        y_shift = y_range * -0.3,
+        base_level=0,
+        scaling=200,
+        decay=1e11,
+        x_shift=x_range * -0.2,
+        y_shift=y_range * -0.3,
     )
 
     # high-frequency
     # circular
     f3 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.015,
             sigma_y=y_range * 0.015,
-            x0=region[0] + x_range*.35,
-            y0=region[2] + y_range*.5,
-            )* -100
+            x0=region[0] + x_range * 0.35,
+            y0=region[2] + y_range * 0.5,
         )
+        * -100
+    )
     f4 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.02,
             sigma_y=y_range * 0.02,
-            x0=region[0] + x_range*.65,
-            y0=region[2] + y_range*.5,
-            )* 200
+            x0=region[0] + x_range * 0.65,
+            y0=region[2] + y_range * 0.5,
         )
+        * 200
+    )
     f5 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.03,
             sigma_y=y_range * 0.03,
-            x0=region[0] + x_range*.5,
-            y0=region[2] + y_range*.35,
-            )* 50
+            x0=region[0] + x_range * 0.5,
+            y0=region[2] + y_range * 0.35,
         )
+        * 50
+    )
     f6 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.04,
             sigma_y=y_range * 0.04,
-            x0=region[0] + x_range*.5,
-            y0=region[2] + y_range*.65,
-            )* -300
+            x0=region[0] + x_range * 0.5,
+            y0=region[2] + y_range * 0.65,
         )
+        * -300
+    )
 
     # elongate
     f7 = (
-        gaussian2d(x,y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.25,
             sigma_y=y_range * 0.03,
             x0=region[0] + x_range * 0.3,
             y0=region[2] + y_range * 0.7,
-            angle=45,)* -300
+            angle=45,
         )
+        * -300
+    )
     f8 = (
-        gaussian2d(x, y,
-            sigma_x=x_range * .7,
-            sigma_y=y_range * .02,
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 0.7,
+            sigma_y=y_range * 0.02,
             x0=region[0] + x_range * 0.7,
             y0=region[2] + y_range * 0.7,
-            angle=-45,) * 50
+            angle=-45,
         )
+        * 50
+    )
     f9 = (
-        gaussian2d(x, y,
-            sigma_x=x_range * .7,
-            sigma_y=y_range * .1,
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 0.7,
+            sigma_y=y_range * 0.1,
             x0=region[0] + x_range * 0.3,
             y0=region[2] + y_range * 0.3,
-            angle=-45,) * -100
+            angle=-45,
         )
+        * -100
+    )
     f10 = (
-        gaussian2d(x, y,
-            sigma_x=x_range * .7,
-            sigma_y=y_range * .08,
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 0.7,
+            sigma_y=y_range * 0.08,
             x0=region[0] + x_range * 0.7,
             y0=region[2] + y_range * 0.3,
-            angle=45,) * 200
+            angle=45,
         )
-
+        * 200
+    )
 
     features = [
-        f1, f2,
-        f3, f4, f5, f6,
-        f7, f8, f9, f10,
+        f1,
+        f2,
+        f3,
+        f4,
+        f5,
+        f6,
+        f7,
+        f8,
+        f9,
+        f10,
     ]
 
     topo = sum(features)
@@ -294,11 +319,11 @@ def synthetic_topography(
         topo,
         data_names="z",
         dims=("y", "x"),
-        ).z
+    ).z
 
     if plot_individuals is True:
         sub_width = 5
-        nrows, ncols = 2, int(len(features)/2)
+        nrows, ncols = 2, int(len(features) / 2)
 
         fig, ax = plt.subplots(
             nrows=nrows,
@@ -336,16 +361,16 @@ def synthetic_topography_simple(
 ):
 
     if registration == "g":
-        pixel_register=False
+        pixel_register = False
     elif registration == "p":
-        pixel_register=True
+        pixel_register = True
 
     # create grid of coordinates
     (x, y) = vd.grid_coordinates(
         region=region,
         spacing=spacing,
         pixel_register=pixel_register,
-        )
+    )
 
     # get x and y range
     x_range = abs(region[1] - region[0])
@@ -357,54 +382,70 @@ def synthetic_topography_simple(
         x,
         y,
         region,
-        base_level = -300,
-        scaling = -500,
-        decay = 1e10,
-        x_shift = x_range * 0.4,
-        y_shift = y_range * -0.2,
-
+        base_level=-300,
+        scaling=-500,
+        decay=1e10,
+        x_shift=x_range * 0.4,
+        y_shift=y_range * -0.2,
     )
 
     # high-frequency
     # circular
     f2 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.03,
             sigma_y=y_range * 0.03,
-            x0=region[0] + x_range*.35,
-            y0=region[2] + y_range*.5,
-            )* -100
+            x0=region[0] + x_range * 0.35,
+            y0=region[2] + y_range * 0.5,
         )
+        * -100
+    )
     f3 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.08,
             sigma_y=y_range * 0.08,
-            x0=region[0] + x_range*.65,
-            y0=region[2] + y_range*.5,
-            )* 200
+            x0=region[0] + x_range * 0.65,
+            y0=region[2] + y_range * 0.5,
         )
+        * 200
+    )
 
     # elongate
     f4 = (
-        gaussian2d(x,y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 0.5,
             sigma_y=y_range * 0.06,
             x0=region[0] + x_range * 0.3,
             y0=region[2] + y_range * 0.7,
-            angle=45,)* -300
+            angle=45,
         )
+        * -300
+    )
     f5 = (
-        gaussian2d(x, y,
+        gaussian2d(
+            x,
+            y,
             sigma_x=x_range * 1.4,
-            sigma_y=y_range * .04,
+            sigma_y=y_range * 0.04,
             x0=region[0] + x_range * 0.7,
             y0=region[2] + y_range * 0.7,
-            angle=-45,) * 50
+            angle=-45,
         )
-
+        * 50
+    )
 
     features = [
-        f1, f2, f3, f4, f5,
+        f1,
+        f2,
+        f3,
+        f4,
+        f5,
     ]
 
     topo = sum(features)
@@ -414,11 +455,11 @@ def synthetic_topography_simple(
         topo,
         data_names="z",
         dims=("y", "x"),
-        ).z
+    ).z
 
     if plot_individuals is True:
         sub_width = 5
-        nrows, ncols = 2, int(len(features)/2)
+        nrows, ncols = 2, int(len(features) / 2)
 
         fig, ax = plt.subplots(
             nrows=nrows,
@@ -446,6 +487,7 @@ def synthetic_topography_simple(
             ax.set_aspect("equal")
 
     return grid
+
 
 def contaminate(data, stddev, percent=False, return_stddev=False, seed=None):
     """

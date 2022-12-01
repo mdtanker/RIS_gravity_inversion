@@ -4,15 +4,16 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import pygmt
 import pyvista as pv
 import seaborn as sns
 import verde as vd
 from antarctic_plots import maps, utils
-import plotly.express as px
 from plotly.subplots import make_subplots
 
 import RIS_gravity_inversion.inversion as inv
+
 
 def plotly_subplots(grids, titles):
 
@@ -26,19 +27,32 @@ def plotly_subplots(grids, titles):
     for i, figure in enumerate(figures):
         for trace in range(len(figure["data"])):
             # add images
-            fig.append_trace(figure["data"][trace], row=1, col=i+1,)
+            fig.append_trace(
+                figure["data"][trace],
+                row=1,
+                col=i + 1,
+            )
             # add titles
             if titles is not None:
-                fig.add_annotation(xref="x domain",yref="y domain",x=0.5, y=1.2,
-                    showarrow=False, text=f"<b>{titles[i]}</b>", row=1, col=i)
+                fig.add_annotation(
+                    xref="x domain",
+                    yref="y domain",
+                    x=0.5,
+                    y=1.2,
+                    showarrow=False,
+                    text=f"<b>{titles[i]}</b>",
+                    row=1,
+                    col=i,
+                )
 
     fig.update_xaxes(
-        scaleanchor = "y",
-        scaleratio = 1,
-        constrain = 'domain',
+        scaleanchor="y",
+        scaleratio=1,
+        constrain="domain",
     )
 
     return fig
+
 
 def plot_inputs(
     inputs: list,
@@ -89,14 +103,14 @@ def plot_inputs(
     #     spacing=grav_spacing,
     #     registration=registration,
     # )
-    # grav_grid = pygmt.surface(
-    #     data=grav[["x", "y", "Gobs"]],
-    #     region=region,
-    #     spacing=grav_spacing,
-    #     T=0.25,
-    #     M="0c",
-    #     registration=registration,
-    # )
+    grav_grid = pygmt.surface(
+        data=grav[["x", "y", "Gobs"]],
+        region=region,
+        spacing=grav_spacing,
+        T=0.25,
+        M="0c",
+        registration=registration,
+    )
 
     plotting_constraints = kwargs.get("plotting_constraints", constraint_points_RIS)
 
@@ -200,7 +214,7 @@ def plot_inputs(
             # s=,
             marker=".",
             cmap="RdBu_r",
-            )
+        )
         # ax[p].colorbar()
 
         ax[p].set_title("Observed gravity")
@@ -521,7 +535,7 @@ def forward_grav_plotting(
     plot_power_spectrums: bool = False,
     exclude_layers: list = None,
     registration="g",
-    block_reduction='pygmt',
+    block_reduction="pygmt",
     inversion_region=None,
 ):
     """
@@ -1049,7 +1063,8 @@ def plot_inversion_results(
                     # lims = (-vd.maxabs(j[0]) * perc, vd.maxabs(j[0]) * perc)
                     # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
                     maxabs = vd.maxabs(
-                        utils.get_min_max(j[0], kwargs.get("shp_mask", None)))
+                        utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    )
                     lims = (-maxabs, maxabs)
                     robust = False
                 elif column == 1:  # topography grids
@@ -1063,7 +1078,8 @@ def plot_inversion_results(
                     cmap = "RdBu_r"
                     # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
                     maxabs = vd.maxabs(
-                        utils.get_min_max(j[0], kwargs.get("shp_mask", None)))
+                        utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                    )
                     lims = (-maxabs, maxabs)
                     robust = False
 

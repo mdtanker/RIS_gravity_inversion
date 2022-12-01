@@ -10,7 +10,7 @@ import pandas as pd
 import pygmt
 import verde as vd
 import xarray as xr
-from antarctic_plots import fetch, maps, profile, utils
+from antarctic_plots import maps, profile, utils
 from scipy.sparse.linalg import lsqr
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
@@ -61,13 +61,12 @@ def grids_to_prism_layers(
 
     # add density variable to datasets
     # for k, v in layers.items():
-        # density=v["grid"].copy()
-        # density.values[:] = v["rho"]
-        # v["grid"] = ([v["grid"], density])
-        # v["grid"]["density"] = v["grid"].copy()
-        # v["grid"].density.values[:] = v["rho"]
-        # print(v["grid"])
-
+    # density=v["grid"].copy()
+    # density.values[:] = v["rho"]
+    # v["grid"] = ([v["grid"], density])
+    # v["grid"]["density"] = v["grid"].copy()
+    # v["grid"].density.values[:] = v["rho"]
+    # print(v["grid"])
 
     # list of layers, bottom up
     # reversed_layers_list = layers_list.iloc[::-1]
@@ -75,7 +74,7 @@ def grids_to_prism_layers(
 
     # create prisms layers from input grids
     for i, j in enumerate(reversed_layers_list):
-        density = np.ones_like(layers[j]["grid"].values)*layers[j]["rho"]
+        density = np.ones_like(layers[j]["grid"].values) * layers[j]["rho"]
         # bottom-most prism layer
         if i == 0:
             # tops of prisms are from current grid
@@ -479,7 +478,7 @@ def anomalies(
             filter=filter,
             distance="0",
             registration=registration,
-            )
+        )
         # sample the results and merge into the anomalies dataframe
         tmp_regrid = pygmt.grdtrack(
             points=anomalies[["x", "y"]],
@@ -738,8 +737,8 @@ def _jacobian_prism_numba(
         # for prisms without any nan's (prisms with thicknesses < threshold)
         # if any([np.isnan(x).any() for x in (prism, density)]) is False:
         # Build a small prism ontop of existing prism (thickness equal to delta)
-        bottom = prism[5] #- delta / 2
-        top = prism[5] + delta #/ 2
+        bottom = prism[5]  # - delta / 2
+        top = prism[5] + delta  # / 2
         delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
 
         jac[:, col] = (
@@ -982,7 +981,7 @@ def geo_inversion(
             "constraints_grid must be applied.",
         )
 
-    if set(['misfit', 'res', 'reg']).issubset(input_grav.columns):
+    if set(["misfit", "res", "reg"]).issubset(input_grav.columns):
         gravity = input_grav.copy()
     else:
         gravity = anomalies(
@@ -1004,7 +1003,6 @@ def geo_inversion(
     delta_l2_norm = np.Inf  # positive infinity
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
     ITER = 0
-
 
     for ITER, _ in enumerate(range(max_iterations), start=1):
         print(f"\n{'':#<60}##################################\niteration {ITER}")
@@ -1238,7 +1236,8 @@ def geo_inversion(
         )
 
         if delta_l2_norm < delta_l2_norm_tolerance:
-            print(f"\nInversion terminated after {ITER} iterations because there was",
+            print(
+                f"\nInversion terminated after {ITER} iterations because there was",
                 "no significant variation in the L2-norm",
             )
             break
@@ -1280,6 +1279,7 @@ def density_inversion(
     inv_reg=None,
     buffer_proj=None,
     plot=True,
+    registration="g",
 ):
     """
     Function to invert gravity anomaly to update a prism layer's density.
