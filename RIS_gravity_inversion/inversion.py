@@ -38,7 +38,7 @@ def RMSE(data):
 def grids_to_prism_layers(
     layers: dict,
     thickness_threshold: float = 1,
-    registration="p",
+    registration="g",
 ):
     """
     Turn nested dictionary of grids into series of vertical prisms between each layer.
@@ -303,7 +303,7 @@ def anomalies(
     grav_spacing: int,
     regional_method: str,
     crs: str = "3031",
-    registration="p",
+    registration="g",
     **kwargs,
 ):
     """
@@ -882,7 +882,7 @@ def geo_inversion(
     solver_type: str = "least squares",
     max_layer_change_per_iter: float = 100,
     save_results: bool = False,
-    registration="p",
+    registration="g",
     **kwargs,
 ):
     """
@@ -1344,7 +1344,7 @@ def density_inversion(
         x=prisms.easting,
         y=prisms.northing,
         z=prisms.density_correction,
-        registration="p",
+        registration=registration,
         region=buffer_reg,
         spacing=grav_spacing,
         projection=buffer_proj,
@@ -1353,7 +1353,7 @@ def density_inversion(
         x=prisms.easting,
         y=prisms.northing,
         z=prisms.updated_density,
-        registration="p",
+        registration=registration,
         region=buffer_reg,
         spacing=layers[density_layer]["spacing"],
         projection=buffer_proj,
@@ -1362,7 +1362,7 @@ def density_inversion(
         df_grav[["x", "y", "inv_misfit"]],
         region=inv_reg,
         spacing=grav_spacing,
-        registration="p",
+        registration=registration,
     )
 
     # apply the rho correction to the prism layer
@@ -1394,7 +1394,7 @@ def density_inversion(
     final_misfit = pygmt.xyz2grd(
         df_grav[["x", "y", "inv_misfit"]],
         region=buffer_reg,
-        registration="p",
+        registration=registration,
         spacing=grav_spacing,
     )
 

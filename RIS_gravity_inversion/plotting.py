@@ -20,7 +20,7 @@ def plot_inputs(
     region: list = None,
     inversion_region: list = None,
     plot_type: str = "xarray",
-    registration="p",
+    registration="g",
     **kwargs,
 ):
     """
@@ -475,7 +475,7 @@ def forward_grav_plotting(
     plot_dists: bool = False,
     plot_power_spectrums: bool = False,
     exclude_layers: list = None,
-    registration="p",
+    registration="g",
 ):
     """
     Plot results from forward gravity calculations of prism layers.
@@ -632,7 +632,7 @@ def anomalies_plotting(
     df_anomalies: pd.DataFrame,
     region: list = None,
     grav_spacing: float = None,
-    registration="p",
+    registration="g",
     plot_dists: bool = False,
     plot_power_spectrums: bool = False,
     **kwargs,
@@ -825,7 +825,7 @@ def plot_inversion_results(
     plot_iters: bool = True,
     plot_topo_results: bool = True,
     plot_grav_results: bool = True,
-    registration="p",
+    registration="g",
     **kwargs,
 ):
     """
