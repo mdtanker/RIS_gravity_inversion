@@ -60,9 +60,14 @@ def grids_to_prism_layers(
     buffer_region = utils.get_grid_info(list(layers.values())[0]["grid"])[1]
 
     # add density variable to datasets
-    for k, v in layers.items():
-        v["grid"]["density"] = v["grid"].copy()
-        v["grid"].density.values[:] = v["rho"]
+    # for k, v in layers.items():
+        # density=v["grid"].copy()
+        # density.values[:] = v["rho"]
+        # v["grid"] = ([v["grid"], density])
+        # v["grid"]["density"] = v["grid"].copy()
+        # v["grid"].density.values[:] = v["rho"]
+        # print(v["grid"])
+
 
     # list of layers, bottom up
     # reversed_layers_list = layers_list.iloc[::-1]
@@ -70,19 +75,20 @@ def grids_to_prism_layers(
 
     # create prisms layers from input grids
     for i, j in enumerate(reversed_layers_list):
+        density = np.ones_like(layers[j]["grid"].values)*layers[j]["rho"]
         # bottom-most prism layer
         if i == 0:
             # tops of prisms are from current grid
             surface = layers[j]["grid"]
             # base of prisms
-            # reference=-50e3,
+            # reference=-100e3
             reference = np.nanmin(layers[j]["grid"].values)
             layers[j]["prisms"] = hm.prism_layer(
                 coordinates=(layers[j]["grid"].x.values, layers[j]["grid"].y.values),
                 surface=surface,
                 reference=reference,
                 properties={
-                    "density": layers[j]["grid"].density,
+                    "density": density,
                     "thickness": surface - reference,
                 },
             )
@@ -132,7 +138,7 @@ def grids_to_prism_layers(
                     surface=surface,
                     reference=reference,
                     properties={
-                        "density": layers[j]["grid"].density,
+                        "density": density,
                         "thickness": surface - reference,
                     },
                 )
@@ -152,7 +158,7 @@ def grids_to_prism_layers(
                     surface=surface,
                     reference=reference,
                     properties={
-                        "density": layers[j]["grid"].density,
+                        "density": density,
                         "thickness": surface - reference,
                     },
                 )
