@@ -786,7 +786,7 @@ def anomalies_plotting(
             region=region,
             spacing=grav_spacing,
             T=0.25,
-            M="0c",
+            # M="0c",
             registration=registration,
         )
 
@@ -830,6 +830,9 @@ def anomalies_plotting(
 
     # add figure title
     fig.suptitle(kwargs.get("title", " "), fontsize=24)
+
+    # add grids and names to dictionary
+    grid_dict = dict(zip(cols_to_grid, anom_grids))
 
     if plot_dists is True:
         # get column to include in plots
@@ -885,7 +888,7 @@ def anomalies_plotting(
             spacing=grav_spacing,
         )
 
-    return anom_grids
+    return grid_dict
 
 
 def plot_inversion_results(
