@@ -856,14 +856,13 @@ def solver(
             damping=damping,
             copy_jacobian=False,
         )
-    elif solver_type == "gauss newton":
-        pass
-    #     hessian = jacobian.T @ jacobian
-    #     gradient = jacobian.T @ residuals
-    #     step = np.linalg.solve(hessian, gradient)
     elif solver_type == "steepest descent":
-        pass
-    #     step = - jacobian.T @ residuals
+        step = jacobian.T @ residuals
+    elif solver_type == "gauss newton":
+        # hessian = jacobian.T @ jacobian
+        # gradient = - jacobian.T @ residuals
+        # step = np.linalg.solve(hessian, gradient)
+        step = np.linalg.lstsq(jacobian, residuals)
     return step
 
 
