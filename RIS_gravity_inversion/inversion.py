@@ -1093,6 +1093,13 @@ def geo_inversion(
             .dropna()
             .astype(float)
         )
+
+        # sample top of upper layer
+        prisms = profile.sample_grids(
+            df=prisms,
+            grid=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
+            name="top_of_above",
+            coord_names=('easting', 'northing'),
         )
 
         # prisms['index']=prisms.index
@@ -1151,6 +1158,12 @@ def geo_inversion(
                     Surface_correction[i] = max_layer_change_per_iter
                 elif Surface_correction[i] < -max_layer_change_per_iter:
                     Surface_correction[i] = -max_layer_change_per_iter
+        # don't let correction bring active layer above top of above layer
+        # i.e., don't let bed move above ice base/water surface
+        prisms['max_allowed_change'] = prisms.top_of_above  - prisms.top
+        for i in range(0, len(prisms)):
+            if Surface_correction[i] > prisms.max_allowed_change[i]:
+                Surface_correction[i] = prisms.max_allowed_change[i]
 
         # add corrections to active prisms layer
         prisms["correction"] = Surface_correction
