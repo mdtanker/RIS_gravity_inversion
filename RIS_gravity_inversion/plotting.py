@@ -538,26 +538,26 @@ def plot_prism_layers(
                 ax.set_aspect("equal")
 
             else:
-            thick.plot(
-                ax=ax[i],
-                robust=True,
-                cmap=cmap,
-                cbar_kwargs={
-                    "orientation": "horizontal",
-                    "anchor": (1, 1),
-                    "fraction": 0.05,
-                    "pad": 0.04,
-                },
-            )
-            ax[i].set_title(f"{k} prism thickness")
+                thick.plot(
+                    ax=ax[i],
+                    robust=True,
+                    cmap=cmap,
+                    cbar_kwargs={
+                        "orientation": "horizontal",
+                        "anchor": (1, 1),
+                        "fraction": 0.05,
+                        "pad": 0.04,
+                    },
+                )
+                ax[i].set_title(f"{k} prism thickness")
 
         if ncols >1:
-        for a in ax:
-            a.set_xticklabels([])
-            a.set_yticklabels([])
-            a.set_xlabel("")
-            a.set_ylabel("")
-            a.set_aspect("equal")
+            for a in ax:
+                a.set_xticklabels([])
+                a.set_yticklabels([])
+                a.set_xlabel("")
+                a.set_ylabel("")
+                a.set_aspect("equal")
 
 def forward_grav_plotting(
     df_forward: pd.DataFrame,
