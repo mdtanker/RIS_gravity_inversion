@@ -866,16 +866,28 @@ def solver(
         array of corrrection values to apply to each prism.
     """
 
-    if solver_type == "least squares":
+    if solver_type == "scipy least squares":
         # gives the amount that each column's Z1 needs to change by to have the smallest
         # misfit
         # finds the least-squares solution to jacobian and the gravity residual, assigns
         # the first value to step
+        if damping == None:
+            damping = 0
         step = sp.sparse.linalg.lsqr(
             jacobian,
             residuals,
             show=False,
-            damp=0,
+            damp=damping,
+        )[0]
+    elif solver_type == "scipy conjugate":
+        step = sp.sparse.linalg.cg(
+            jacobian,
+            residuals,
+        )[0]
+    elif solver_type == "numpy least squares":
+        step = np.linalg.lstsq(
+            jacobian,
+            residuals,
         )[0]
     elif solver_type == "verde least squares":
         step = vd.base.least_squares(
@@ -886,13 +898,33 @@ def solver(
             copy_jacobian=False,
         )
     elif solver_type == "steepest descent":
+        residuals = residuals
         step = jacobian.T @ residuals
     elif solver_type == "gauss newton":
-        # hessian = jacobian.T @ jacobian
-        # gradient = - jacobian.T @ residuals
+        # from https://nbviewer.org/github/compgeolab/2020-aachen-inverse-problems/blob/main/gravity-inversion.ipynb # noqa
+        fdmatrix = finite_difference_matrix(jacobian[1].size)
+        hessian = jacobian.T @ jacobian #+ damping * fdmatrix.T @ fdmatrix
+        gradient = jacobian.T @ residuals #- damping * fdmatrix.T @ fdmatrix @ tops
         # step = np.linalg.solve(hessian, gradient)
-        step = np.linalg.lstsq(jacobian, residuals)
+        # from https://github.com/peterH105/Gradient_Inversion/blob/071f3473f4655f88d3ee988255360781760b5055/code_SAM/grad_inv_functions_synthetic.py#L39 # noqa
+        # gradient = jacobian_shift
+        # # finite_diff matrix: same shape as jacobian
+        # fdmatrix =
+        # rhs = gradient.T.dot(residuals)-fdmatrix.T.dot(fdmatrix).dot(tops)
+        # lhs = gradient.T.dot(gradient)+fdmatrix.T.dot(fdmatrix)
+        # step = np.linalg.solve(lhs,rhs)
     return step
+
+
+def finite_difference_matrix(nparams):
+    """
+    Create the finite difference matrix for regularization.
+    """
+    fdmatrix = np.zeros((nparams - 1, nparams))
+    for i in range(fdmatrix.shape[0]):
+        fdmatrix[i, i] = -1
+        fdmatrix[i, i + 1] = 1
+    return fdmatrix
 
 
 def geo_inversion(
