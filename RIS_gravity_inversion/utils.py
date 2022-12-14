@@ -253,6 +253,14 @@ def import_layers(
     return outputs
 
 
+def normalize_xarray(da, low=0, high=1):
+
+    min_val = da.quantile(0)
+    max_val = da.quantile(1)
+
+    return (high - low)*(((da - min_val) / (max_val - min_val)).clip(0, 1)) + low
+
+
 class optuna_regional_RMSE:
     def __init__(
         self,
