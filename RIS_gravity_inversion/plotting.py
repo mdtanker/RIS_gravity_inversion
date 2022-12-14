@@ -220,10 +220,10 @@ def plot_inputs(
         fig.colorbar(
             q,
             orientation="horizontal",
-            anchor= (1, 1),
-            fraction= 0.05,
-            pad= 0.04,
-            )
+            anchor=(1, 1),
+            fraction=0.05,
+            pad=0.04,
+        )
 
         ax[p].set_title("Observed gravity")
         p += 1
@@ -354,7 +354,7 @@ def show_prism_layers(
         notebook=True,
     )
 
-    opacity=kwargs.get("opacity", None)
+    opacity = kwargs.get("opacity", None)
 
     for i, j in enumerate(prisms):
         # if region is given, clip model
@@ -388,9 +388,9 @@ def show_prism_layers(
             )
 
         if opacity is not None:
-            trans=opacity[i]
+            trans = opacity[i]
         else:
-            trans=None
+            trans = None
 
         if color_by == "constant":
             colors = kwargs.get(
@@ -428,7 +428,8 @@ def show_prism_layers(
     add_light(plotter, prisms[i])
 
     plotter.show_axes()
-    plotter.show(jupyter_backend=kwargs.get('backend', 'ipyvtklink'))
+    plotter.show(jupyter_backend=kwargs.get("backend", "ipyvtklink"))
+
 
 def plot_prism_layers(
     layers: dict,
@@ -519,7 +520,7 @@ def plot_prism_layers(
                     easting=slice(region[0], region[1]),
                     northing=slice(region[2], region[3]),
                 )
-            if ncols <2:
+            if ncols < 2:
                 thick.plot(
                     ax=ax,
                     robust=True,
@@ -551,13 +552,14 @@ def plot_prism_layers(
                 )
                 ax[i].set_title(f"{k} prism thickness")
 
-        if ncols >1:
+        if ncols > 1:
             for a in ax:
                 a.set_xticklabels([])
                 a.set_yticklabels([])
                 a.set_xlabel("")
                 a.set_ylabel("")
                 a.set_aspect("equal")
+
 
 def forward_grav_plotting(
     df_forward: pd.DataFrame,
@@ -946,7 +948,7 @@ def plot_inversion_results(
     region: list = None,
     save_topo_nc: bool = False,
     save_residual_nc: bool = False,
-    iters_to_plot = None,
+    iters_to_plot=None,
     plot_iters: bool = True,
     plot_topo_results: bool = True,
     plot_grav_results: bool = True,
@@ -1029,9 +1031,9 @@ def plot_inversion_results(
         iterations = list(np.linspace(1, max(iterations), iters_to_plot, dtype=int))
 
     # subset columns based on iterations to plot
-    misfits = [misfits[i] for i in [x-1 for x in iterations]]
-    topos = [topos[i] for i in [x-1 for x in iterations]]
-    corrections = [corrections[i] for i in [x-1 for x in iterations]]
+    misfits = [misfits[i] for i in [x - 1 for x in iterations]]
+    topos = [topos[i] for i in [x - 1 for x in iterations]]
+    corrections = [corrections[i] for i in [x - 1 for x in iterations]]
 
     # get grid spacing
     spacing = layers_dict[active_layer]["spacing"]
@@ -1083,7 +1085,6 @@ def plot_inversion_results(
         )
 
         grids = (misfit_grids, topo_grids, corrections_grids)
-
 
         for column, j in enumerate(grids):
             for row, y in enumerate(j):
@@ -1143,7 +1144,9 @@ def plot_inversion_results(
 
                 # add subplot titles
                 if column == 0:  # misfit grids
-                    rmse = inv.RMSE(grav_results[f"iter_{iterations[row]}_initial_misfit"])
+                    rmse = inv.RMSE(
+                        grav_results[f"iter_{iterations[row]}_initial_misfit"]
+                    )
                     ax[row, column].set_title(
                         f"initial misfit RMSE = {round(rmse, 2)} mGal"
                     )

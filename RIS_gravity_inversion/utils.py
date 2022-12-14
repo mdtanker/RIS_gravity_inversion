@@ -258,7 +258,7 @@ def normalize_xarray(da, low=0, high=1):
     min_val = da.quantile(0)
     max_val = da.quantile(1)
 
-    return (high - low)*(((da - min_val) / (max_val - min_val)).clip(0, 1)) + low
+    return (high - low) * (((da - min_val) / (max_val - min_val)).clip(0, 1)) + low
 
 
 class optuna_regional_RMSE:
@@ -288,7 +288,7 @@ class optuna_regional_RMSE:
             param = trial.suggest_int("param", 10e3, 10010e3, step=10e3)
 
         rmse, df = regional_RMSE(
-            method = self.method,
+            method=self.method,
             true_regional=self.true_regional,
             true_residual=self.true_residual,
             layers=self.layers,
@@ -484,12 +484,12 @@ def regional_RMSE(
     elif method == "minimize constraints":
         # grid the residuls
         residuals = pygmt.xyz2grd(
-                data=df_anomalies[["x", "y", "res"]],
-                region=inversion_region,
-                spacing=grav_spacing,
-                registration="g",
-                verbose="q",
-            )
+            data=df_anomalies[["x", "y", "res"]],
+            region=inversion_region,
+            spacing=grav_spacing,
+            registration="g",
+            verbose="q",
+        )
         # sample the residuals at the constraint points
         df = profile.sample_grids(constraints, residuals, "residuals")
         rms = inv.RMSE(df.residuals)
@@ -561,6 +561,7 @@ def plot_best_param(study, regional_method, **kwargs):
             grid1_name="True regional misfit",
             grid2_name="best regional misfit",
         )
+
 
 def plot_best_params_per_method(studies, **kwargs):
     for k, v in studies.items():

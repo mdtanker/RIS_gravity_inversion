@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import verde as vd
+
 import RIS_gravity_inversion.utils as inv_utils
+
 
 def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
     """
@@ -60,6 +62,7 @@ def exponential_surface(
 
     return base_level + (scaling * func)
 
+
 def synthetic_topography_upper(
     spacing,
     region,
@@ -81,7 +84,7 @@ def synthetic_topography_upper(
     )
 
     # create topographic features
-    feature = (60e3-x)**2 + (y-30e3)**2
+    feature = (60e3 - x) ** 2 + (y - 30e3) ** 2
 
     grid = vd.make_xarray_grid(
         (x, y),
@@ -93,6 +96,7 @@ def synthetic_topography_upper(
     grid = inv_utils.normalize_xarray(grid, low=low, high=high)
 
     return grid
+
 
 def synthetic_topography_regional(
     spacing,
@@ -119,7 +123,7 @@ def synthetic_topography_regional(
     y_range = abs(region[3] - region[2])
 
     # create topographic features
-    feature1 = ((
+    feature1 = (
         gaussian2d(
             x,
             y,
@@ -128,8 +132,10 @@ def synthetic_topography_regional(
             x0=region[0] + x_range,
             y0=region[2] + y_range * 0.5,
             angle=10,
-        ) * -150*scale) -3500
-    )
+        )
+        * -150
+        * scale
+    ) - 3500
     feature2 = (
         gaussian2d(
             x,
@@ -140,7 +146,8 @@ def synthetic_topography_regional(
             y0=region[2] + y_range * 0.4,
             angle=-10,
         )
-        * -100*scale
+        * -100
+        * scale
     )
     feature3 = (
         gaussian2d(
@@ -152,7 +159,8 @@ def synthetic_topography_regional(
             y0=region[2] + y_range * 0.7,
             angle=-80,
         )
-        * 150*scale
+        * 150
+        * scale
     )
 
     features = [feature1, feature2, feature3]
