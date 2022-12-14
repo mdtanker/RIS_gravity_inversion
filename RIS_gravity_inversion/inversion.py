@@ -39,6 +39,7 @@ def grids_to_prism_layers(
     layers: dict,
     thickness_threshold: float = 1,
     registration="g",
+    lowest_bottom=None,
 ):
     """
     Turn nested dictionary of grids into series of vertical prisms between each layer.
@@ -80,7 +81,9 @@ def grids_to_prism_layers(
             # tops of prisms are from current grid
             surface = layers[j]["grid"]
             # base of prisms
-            # reference=-100e3
+            if lowest_bottom is not None:
+                reference = lowest_bottom
+            else:
             reference = np.nanmin(layers[j]["grid"].values)
             layers[j]["prisms"] = hm.prism_layer(
                 coordinates=(layers[j]["grid"].x.values, layers[j]["grid"].y.values),
