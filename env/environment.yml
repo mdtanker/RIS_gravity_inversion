@@ -13,6 +13,9 @@ dependencies:
   - matplotlib
   - pyvista
   - pyvista-xarray
+  - ipyvtklink
+  - ipygany
+  - pythreejs
   - harmonica
   - verde
   - xarray
@@ -20,7 +23,6 @@ dependencies:
   - rioxarray
   - openssl
   - seaborn
-  - ipyvtklink
   - ipykernel
   - proj-data
   - cmocean
