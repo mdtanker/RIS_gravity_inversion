@@ -99,6 +99,7 @@ def synthetic_topography_regional(
     region,
     plot_individuals=False,
     registration="g",
+    scale=1,
 ):
 
     if registration == "g":
@@ -118,8 +119,16 @@ def synthetic_topography_regional(
     y_range = abs(region[3] - region[2])
 
     # create topographic features
-    feature1 = exponential_surface(
-        x, y, region, -3500, -600, 1e12, x_range * 0.4, y_range * -0.2
+    feature1 = ((
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 2,
+            sigma_y=y_range * 2,
+            x0=region[0] + x_range,
+            y0=region[2] + y_range * 0.5,
+            angle=10,
+        ) * -150*scale) -3500
     )
     feature2 = (
         gaussian2d(
@@ -128,10 +137,10 @@ def synthetic_topography_regional(
             sigma_x=x_range * 3,
             sigma_y=y_range * 0.4,
             x0=region[0] + x_range * 0.2,
-            y0=region[2] + y_range * 0.6,
-            angle=10,
+            y0=region[2] + y_range * 0.4,
+            angle=-10,
         )
-        * -600
+        * -100*scale
     )
     feature3 = (
         gaussian2d(
@@ -140,10 +149,10 @@ def synthetic_topography_regional(
             sigma_x=x_range * 0.2,
             sigma_y=y_range * 7,
             x0=region[0] + x_range * 0.8,
-            y0=region[2] + y_range * 0.3,
-            angle=80,
+            y0=region[2] + y_range * 0.7,
+            angle=-80,
         )
-        * 1000
+        * 150*scale
     )
 
     features = [feature1, feature2, feature3]
