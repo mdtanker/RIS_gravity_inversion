@@ -9,7 +9,7 @@ STYLE_CHECK_FILES= . #$(PROJECT)
 #
 #
 install:
-	mamba env create --file env/environment.yml
+	mamba env create --file env/environment.yml --name RIS_gravity_inversion
 
 delete_env:
 	mamba remove --name RIS_gravity_inversion --all --yes
@@ -42,7 +42,7 @@ conda_yml:
 	mamba env export --name RIS_gravity_inversion --from-history --no-build > env/environment.yml
 
 conda_update:
-	mamba env update --file env/environment.yml
+	mamba env update --file env/environment.yml --name RIS_gravity_inversion
 #
 #
 #
