@@ -1064,7 +1064,6 @@ def geo_inversion(
     spacing = layers_update[active_layer]["spacing"]
     delta_l2_norm = np.Inf  # positive infinity
     ind = include_forward_layers[include_forward_layers == active_layer].index[0]
-    ITER = 0
 
     for ITER, _ in enumerate(range(max_iterations), start=1):
         print(f"\n{'':#<60}##################################\niteration {ITER}")
@@ -1110,10 +1109,10 @@ def geo_inversion(
             )
         elif deriv_type == "prisms":
             jac = jacobian_prism(
-                gravity,
-                layers_update[active_layer]["prisms"],
-                1,
-                "g_z",
+                coordinates = gravity,
+                model = layers_update[active_layer]["prisms"],
+                delta = kwargs.get("delta", 1),
+                field = "g_z",
             )
         else:
             print("not valid derivative type")
@@ -1141,8 +1140,8 @@ def geo_inversion(
         )
 
         print(
-            f"Layer correction mean: {int(Surface_correction.mean())} m, RMSE:",
-            f"{int(RMSE(Surface_correction))} m",
+            f"Layer correction mean: {int(Surface_correction.mean())}",
+            f"m, RMSE:{int(RMSE(Surface_correction))} m",
         )
 
         if max_layer_change_per_iter is not None:
@@ -1158,6 +1157,14 @@ def geo_inversion(
 
         # add same corrections to layer above active layer
         prisms_above["correction"] = Surface_correction
+
+        # vizualize max allowed change
+        # max_allowed_change = prisms.set_index(["northing", "easting"]).to_xarray().max_allowed_change
+        # change = prisms.set_index(["northing", "easting"]).to_xarray().correction
+        # (max_allowed_change - change).plot(vmax=50)
+        # import matplotlib.pyplot as plt
+        # plt.show()
+
         # prisms_above = pd.merge(
         #     prisms_above, prisms[['correction']],
         #     how='left',
@@ -1188,36 +1195,41 @@ def geo_inversion(
 
         prisms.top += prisms.correction
         prisms_above.bottom += prisms_above.correction
+
         iter_corrections[f"iter_{ITER}_final_top"] = prisms.top.copy()
 
+        # grid updated prism surfaces
+        updated_top = prisms.set_index(["northing", "easting"]).to_xarray().top
+        updated_bottom = prisms_above.set_index(["northing", "easting"]).to_xarray().bottom
+
         # apply the z correction to the active prism layer and the above layer
-        prisms_grid = pygmt.xyz2grd(
-            prisms[["easting", "northing", "top"]],
-            region=buffer_region,
-            registration=registration,
-            spacing=spacing,
-        )
-        prisms_above_grid = pygmt.xyz2grd(
-            prisms_above[["easting", "northing", "bottom"]],
-            region=buffer_region,
-            registration=registration,
-            spacing=spacing,
-        )
-
+        # this is resulting in some minor issues where bottom of above layer doesn't
+        # exactly equal top of below layer
+        # (updated_top - updated_bottom).plot()
+        # import matplotlib.pyplot as plt
+        # plt.show()
         layers_update[active_layer]["prisms"].prism_layer.update_top_bottom(
-            surface=prisms_grid, reference=layers_update[active_layer]["prisms"].bottom
+                surface=updated_top,
+                reference=layers_update[active_layer]["prisms"].bottom
         )
-        layers_update[include_forward_layers[ind - 1]][
-            "prisms"
-        ].prism_layer.update_top_bottom(
+        layers_update[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
             surface=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
-            reference=prisms_above_grid,
+            reference=updated_bottom,
         )
+        # same as above but without using df's
+        # surf_corr = prisms.set_index(["northing", "easting"]).to_xarray().correction
+        # layers_update[active_layer]["prisms"].prism_layer.update_top_bottom(
+        #         surface=layers_update[active_layer]["prisms"].top+surf_corr,
+        #         reference=layers_update[active_layer]["prisms"].bottom
+        #     )
+        # layers_update[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
+        #     surface=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
+        #     reference=layers_update[include_forward_layers[ind - 1]]["prisms"].bottom+surf_corr,
+        # )
 
+        # add results to df's
         gravity[f"iter_{ITER}_initial_misfit"] = gravity.res
-
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
-
         gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[
             active_layer
         ]["prisms"].prism_layer.gravity(
@@ -1296,6 +1308,7 @@ def geo_inversion(
         # updated the delta l2_norm
         delta_l2_norm = updated_delta_l2_norm
 
+        # save the update topo in the dictionary
         layers_update[active_layer]["inv_grid"] = (
             prisms.rename(columns={"easting": "x", "northing": "y"})
             .set_index(["y", "x"])
