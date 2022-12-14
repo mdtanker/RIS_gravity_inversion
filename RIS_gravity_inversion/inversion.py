@@ -35,6 +35,22 @@ def RMSE(data):
     return np.sqrt(np.nanmean(data**2).item())
 
 
+def inverted_prisms_to_zero(surface, reference):
+
+    def neg_thick():
+        return f"""Warning: portion of upper grid is below lower grid. Setting prism
+        tops equal to bottoms for these prisms (thickness of 0).
+        """
+    thickness = surface - reference
+
+    # check for negative thickness values
+    if (thickness).values.min() < 0:
+        warnings.warn(neg_thick())
+        reference = np.minimum(surface, reference)
+        thickness = surface - reference
+
+    return surface, reference, thickness
+
 def grids_to_prism_layers(
     layers: dict,
     thickness_threshold: float = 1,
@@ -85,10 +101,13 @@ def grids_to_prism_layers(
                 reference = lowest_bottom
             else:
             reference = np.nanmin(layers[j]["grid"].values)
+
+            surface, reference, thickness = inverted_prisms_to_zero(surface, reference)
+
             layers[j]["prisms"] = hm.prism_layer(
                 coordinates=(layers[j]["grid"].x.values, layers[j]["grid"].y.values),
-                surface=surface,
-                reference=reference,
+                surface=surface.astype(np.float64),
+                reference=reference.astype(np.float64),
                 properties={
                     "density": density,
                     "thickness": surface - reference,
@@ -132,13 +151,17 @@ def grids_to_prism_layers(
                 )
                 surface = layers[j]["grid"]
                 reference = tmp_grd
+
+                surface, reference, thickness = inverted_prisms_to_zero(
+                    surface, reference)
+
                 layers[j]["prisms"] = hm.prism_layer(
                     coordinates=(
                         layers[j]["grid"].x.values,
                         layers[j]["grid"].y.values,
                     ),
-                    surface=surface,
-                    reference=reference,
+                    surface=surface.astype(np.float64),
+                    reference=reference.astype(np.float64),
                     properties={
                         "density": density,
                         "thickness": surface - reference,
@@ -152,13 +175,17 @@ def grids_to_prism_layers(
             else:
                 surface = layers[j]["grid"]
                 reference = layers[reversed_layers_list.iloc[i - 1]]["grid"]
+
+                surface, reference, thickness = inverted_prisms_to_zero(
+                    surface, reference)
+
                 layers[j]["prisms"] = hm.prism_layer(
                     coordinates=(
                         layers[j]["grid"].x.values,
                         layers[j]["grid"].y.values,
                     ),
-                    surface=surface,
-                    reference=reference,
+                    surface=surface.astype(np.float64),
+                    reference=reference.astype(np.float64),
                     properties={
                         "density": density,
                         "thickness": surface - reference,
