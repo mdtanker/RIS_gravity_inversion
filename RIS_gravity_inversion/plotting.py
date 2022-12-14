@@ -207,7 +207,7 @@ def plot_inputs(
         #         "pad": 0.04,
         #     },
         # )
-        ax[p].scatter(
+        q = ax[p].scatter(
             x=grav.x,
             y=grav.y,
             c=grav.Gobs,
@@ -215,7 +215,15 @@ def plot_inputs(
             marker=".",
             cmap="RdBu_r",
         )
-        # ax[p].colorbar()
+        ax[p].set_xlim((region[0], region[1]))
+        ax[p].set_ylim((region[2], region[3]))
+        fig.colorbar(
+            q,
+            orientation="horizontal",
+            anchor= (1, 1),
+            fraction= 0.05,
+            pad= 0.04,
+            )
 
         ax[p].set_title("Observed gravity")
         p += 1
