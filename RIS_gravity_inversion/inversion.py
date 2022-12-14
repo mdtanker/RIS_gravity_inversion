@@ -109,8 +109,8 @@ def grids_to_prism_layers(
                 surface=surface.astype(np.float64),
                 reference=reference.astype(np.float64),
                 properties={
-                    "density": density,
-                    "thickness": surface - reference,
+                    "density": density.astype(np.float64),
+                    "thickness": thickness.astype(np.float64),
                 },
             )
             print(
@@ -163,8 +163,8 @@ def grids_to_prism_layers(
                     surface=surface.astype(np.float64),
                     reference=reference.astype(np.float64),
                     properties={
-                        "density": density,
-                        "thickness": surface - reference,
+                        "density": density.astype(np.float64),
+                        "thickness": thickness.astype(np.float64),
                     },
                 )
                 print(
@@ -187,8 +187,8 @@ def grids_to_prism_layers(
                     surface=surface.astype(np.float64),
                     reference=reference.astype(np.float64),
                     properties={
-                        "density": density,
-                        "thickness": surface - reference,
+                        "density": density.astype(np.float64),
+                        "thickness": thickness.astype(np.float64),
                     },
                 )
                 print(
@@ -1049,13 +1049,19 @@ def geo_inversion(
 
         # get prisms' coordinates from active layer and layer above
         prisms = (
-            layers_update[active_layer]["prisms"].to_dataframe().reset_index().dropna()
+            layers_update[active_layer]["prisms"]
+            .to_dataframe()
+            .reset_index()
+            .dropna()
+            .astype(float)
         )
         prisms_above = (
             layers_update[include_forward_layers[ind - 1]]["prisms"]
             .to_dataframe()
             .reset_index()
             .dropna()
+            .astype(float)
+        )
         )
 
         # prisms['index']=prisms.index
