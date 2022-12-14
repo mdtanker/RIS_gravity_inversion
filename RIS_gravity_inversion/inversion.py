@@ -73,6 +73,7 @@ def grids_to_prism_layers(
         remove prisms with thickness less than this threshold, in meters, by default 1
     """
 
+
     # buffer region defaults to first layer's extent
     buffer_region = utils.get_grid_info(list(layers.values())[0]["grid"])[1]
 
@@ -100,7 +101,7 @@ def grids_to_prism_layers(
             if lowest_bottom is not None:
                 reference = lowest_bottom
             else:
-            reference = np.nanmin(layers[j]["grid"].values)
+                reference = np.nanmin(layers[j]["grid"].values)
 
             surface, reference, thickness = inverted_prisms_to_zero(surface, reference)
 
@@ -113,6 +114,7 @@ def grids_to_prism_layers(
                     "thickness": thickness.astype(np.float64),
                 },
             )
+
             print(
                 f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}m"
                 f" and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}m "
@@ -167,6 +169,7 @@ def grids_to_prism_layers(
                         "thickness": thickness.astype(np.float64),
                     },
                 )
+
                 print(
                     f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}"  # noqa
                     f"m and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}"  # noqa
@@ -191,11 +194,13 @@ def grids_to_prism_layers(
                         "thickness": thickness.astype(np.float64),
                     },
                 )
+
                 print(
                     f"{'':*<10} {j} top: {int(np.nanmean(layers[j]['prisms'].top.values))}"  # noqa
                     f"m and bottom: {int(np.nanmean(layers[j]['prisms'].bottom.values))}"  # noqa
                     f"m {'':*>10}\n"
                 )
+
 
     # # drop prisms with thicknesses < threshold
     # total_before = []
@@ -1229,7 +1234,7 @@ def geo_inversion(
         layers_update[active_layer]["prisms"].prism_layer.update_top_bottom(
                 surface=updated_top,
                 reference=layers_update[active_layer]["prisms"].bottom
-        )
+            )
         layers_update[include_forward_layers[ind - 1]]["prisms"].prism_layer.update_top_bottom(
             surface=layers_update[include_forward_layers[ind - 1]]["prisms"].top,
             reference=updated_bottom,
@@ -1249,17 +1254,17 @@ def geo_inversion(
         gravity[f"iter_{ITER}_initial_misfit"] = gravity.res
         iter_corrections[f"iter_{ITER}_correction"] = prisms.correction.copy()
         gravity[f"iter_{ITER}_{active_layer}_forward_grav"] = layers_update[
-            active_layer
-        ]["prisms"].prism_layer.gravity(
-            coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
-        )
+                active_layer
+            ]["prisms"].prism_layer.gravity(
+                coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
+            )
         gravity[
-            f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"
-        ] = layers_update[include_forward_layers[ind - 1]][
-            "prisms"
-        ].prism_layer.gravity(
-            coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
-        )
+                f"iter_{ITER}_{include_forward_layers[ind-1]}_forward_grav"
+            ] = layers_update[include_forward_layers[ind - 1]][
+                "prisms"
+            ].prism_layer.gravity(
+                coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
+            )
         # center on 0
         gravity[f"iter_{ITER}_{active_layer}_forward_grav"] -= gravity[
             f"iter_{ITER}_{active_layer}_forward_grav"
