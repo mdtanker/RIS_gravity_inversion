@@ -559,7 +559,6 @@ def plot_prism_layers(
             a.set_ylabel("")
             a.set_aspect("equal")
 
-
 def forward_grav_plotting(
     df_forward: pd.DataFrame,
     region: list = None,
@@ -947,6 +946,7 @@ def plot_inversion_results(
     region: list = None,
     save_topo_nc: bool = False,
     save_residual_nc: bool = False,
+    iters_to_plot = None,
     plot_iters: bool = True,
     plot_topo_results: bool = True,
     plot_grav_results: bool = True,
@@ -1024,6 +1024,15 @@ def plot_inversion_results(
     # list of iterations, e.g. [1,2,3,4]
     iterations = [int(s[5:][:-15]) for s in misfits]
 
+    # get on x amout of iterations to plot
+    if iters_to_plot is not None:
+        iterations = list(np.linspace(1, max(iterations), iters_to_plot, dtype=int))
+
+    # subset columns based on iterations to plot
+    misfits = [misfits[i] for i in [x-1 for x in iterations]]
+    topos = [topos[i] for i in [x-1 for x in iterations]]
+    corrections = [corrections[i] for i in [x-1 for x in iterations]]
+
     # get grid spacing
     spacing = layers_dict[active_layer]["spacing"]
 
@@ -1064,7 +1073,7 @@ def plot_inversion_results(
 
         # set figure parameters
         sub_width = 5
-        nrows, ncols = max(iterations), 3
+        nrows, ncols = len(iterations), 3
 
         # setup subplot figure
         fig, ax = plt.subplots(
@@ -1075,6 +1084,7 @@ def plot_inversion_results(
 
         grids = (misfit_grids, topo_grids, corrections_grids)
 
+
         for column, j in enumerate(grids):
             for row, y in enumerate(j):
                 # add iteration number as text
@@ -1082,7 +1092,7 @@ def plot_inversion_results(
                     plt.text(
                         -0.1,
                         0.5,
-                        f"Iteration #{row+1}",
+                        f"Iteration #{iterations[row]}",
                         transform=ax[row, column].transAxes,
                         rotation="vertical",
                         ha="center",
@@ -1133,14 +1143,14 @@ def plot_inversion_results(
 
                 # add subplot titles
                 if column == 0:  # misfit grids
-                    rmse = inv.RMSE(grav_results[f"iter_{row+1}_initial_misfit"])
+                    rmse = inv.RMSE(grav_results[f"iter_{iterations[row]}_initial_misfit"])
                     ax[row, column].set_title(
                         f"initial misfit RMSE = {round(rmse, 2)} mGal"
                     )
                 elif column == 1:  # topography grids
                     ax[row, column].set_title("updated bathymetry")
                 elif column == 2:  # correction grids
-                    rmse = inv.RMSE(topo_results[f"iter_{row+1}_correction"])
+                    rmse = inv.RMSE(topo_results[f"iter_{iterations[row]}_correction"])
                     ax[row, column].set_title(
                         f"iteration correction RMSE = {round(rmse, 2)} m"
                     )
@@ -1298,3 +1308,5 @@ def plot_inversion_results(
         final_misfit.to_netcdf(
             f"results/{kwargs.get('residual_fname','final_residual')}.nc"
         )
+
+    return grids
