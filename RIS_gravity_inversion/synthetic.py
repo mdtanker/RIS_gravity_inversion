@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import verde as vd
-
+import RIS_gravity_inversion.utils as inv_utils
 
 def gaussian2d(x, y, sigma_x, sigma_y, x0=0, y0=0, angle=0.0):
     """
@@ -60,6 +60,39 @@ def exponential_surface(
 
     return base_level + (scaling * func)
 
+def synthetic_topography_upper(
+    spacing,
+    region,
+    low=0,
+    high=1,
+    registration="g",
+):
+
+    if registration == "g":
+        pixel_register = False
+    elif registration == "p":
+        pixel_register = True
+
+    # create grid of coordinates
+    (x, y) = vd.grid_coordinates(
+        region=region,
+        spacing=spacing,
+        pixel_register=pixel_register,
+    )
+
+    # create topographic features
+    feature = (60e3-x)**2 + (y-30e3)**2
+
+    grid = vd.make_xarray_grid(
+        (x, y),
+        feature,
+        data_names="z",
+        dims=("y", "x"),
+    ).z
+
+    grid = inv_utils.normalize_xarray(grid, low=low, high=high)
+
+    return grid
 
 def synthetic_topography_regional(
     spacing,
