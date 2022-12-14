@@ -519,7 +519,25 @@ def plot_prism_layers(
                     easting=slice(region[0], region[1]),
                     northing=slice(region[2], region[3]),
                 )
+            if ncols <2:
+                thick.plot(
+                    ax=ax,
+                    robust=True,
+                    cmap=cmap,
+                    cbar_kwargs={
+                        "orientation": "horizontal",
+                        "anchor": (1, 1),
+                        "fraction": 0.05,
+                        "pad": 0.04,
+                    },
+                )
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                ax.set_xlabel("")
+                ax.set_ylabel("")
+                ax.set_aspect("equal")
 
+            else:
             thick.plot(
                 ax=ax[i],
                 robust=True,
@@ -533,6 +551,7 @@ def plot_prism_layers(
             )
             ax[i].set_title(f"{k} prism thickness")
 
+        if ncols >1:
         for a in ax:
             a.set_xticklabels([])
             a.set_yticklabels([])
