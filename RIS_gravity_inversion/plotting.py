@@ -347,14 +347,14 @@ def show_prism_layers(
          choose to clip out cube of 3D plot, by default is True
     """
 
-    pv.set_jupyter_backend(kwargs.get("backend", "ipyvtklink"))
-
     # Plot with pyvista
     plotter = pv.Plotter(
         lighting="three_lights",
         # window_size=(1000, 1000),
         notebook=True,
     )
+
+    opacity=kwargs.get("opacity", None)
 
     for i, j in enumerate(prisms):
         # if region is given, clip model
@@ -387,6 +387,11 @@ def show_prism_layers(
                 invert=True,
             )
 
+        if opacity is not None:
+            trans=opacity[i]
+        else:
+            trans=None
+
         if color_by == "constant":
             colors = kwargs.get(
                 "colors", ["lavender", "aqua", "goldenrod", "saddlebrown", "black"]
@@ -397,6 +402,7 @@ def show_prism_layers(
                 smooth_shading=kwargs.get("smooth_shading", False),
                 style=kwargs.get("style", "surface"),
                 show_edges=kwargs.get("show_edges", False),
+                opacity=trans,
             )
         else:
             plotter.add_mesh(
@@ -408,6 +414,7 @@ def show_prism_layers(
                 style=kwargs.get("style", "surface"),
                 show_edges=kwargs.get("show_edges", False),
                 log_scale=kwargs.get("log_scale", True),
+                opacity=trans,
             )
         plotter.set_scale(
             zscale=kwargs.get("zscale", 75)
@@ -421,8 +428,7 @@ def show_prism_layers(
     add_light(plotter, prisms[i])
 
     plotter.show_axes()
-    plotter.show()
-
+    plotter.show(jupyter_backend=kwargs.get('backend', 'ipyvtklink'))
 
 def plot_prism_layers(
     layers: dict,
