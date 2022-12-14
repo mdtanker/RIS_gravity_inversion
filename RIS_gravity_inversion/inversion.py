@@ -1158,6 +1158,11 @@ def geo_inversion(
                     Surface_correction[i] = max_layer_change_per_iter
                 elif Surface_correction[i] < -max_layer_change_per_iter:
                     Surface_correction[i] = -max_layer_change_per_iter
+            print(
+                f"Layer correction (after clipped) mean: {int(Surface_correction.mean())}",
+                f"m, RMSE:{int(RMSE(Surface_correction))} m",
+            )
+
         # don't let correction bring active layer above top of above layer
         # i.e., don't let bed move above ice base/water surface
         prisms['max_allowed_change'] = prisms.top_of_above  - prisms.top
