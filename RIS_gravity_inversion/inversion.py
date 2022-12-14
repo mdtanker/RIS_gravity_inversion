@@ -11,7 +11,7 @@ import pygmt
 import verde as vd
 import xarray as xr
 from antarctic_plots import maps, profile, utils
-from scipy.sparse.linalg import lsqr
+import scipy as sp
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
 warnings.filterwarnings("ignore", message="pandas.Float64Index")
@@ -841,7 +841,7 @@ def solver(
         # misfit
         # finds the least-squares solution to jacobian and the gravity residual, assigns
         # the first value to step
-        step = lsqr(
+        step = sp.sparse.linalg.lsqr(
             jacobian,
             residuals,
             show=False,
@@ -1322,7 +1322,8 @@ def density_inversion(
             field="g_z",
         )
     # Calculate shift to prism's densities to minimize misfit
-    Density_correction = lsqr(MAT_DENS, df_grav.inv_misfit, show=False)[0]
+    Density_correction = sp.sparse.linalg.lsqr(
+        MAT_DENS, df_grav.inv_misfit, show=False)[0]
 
     # for i,j in enumerate((input_grav)): #add tqdm for progressbar
     # MAT_DENS[i,:] = gravbox(
@@ -1338,7 +1339,8 @@ def density_inversion(
     #     np.ones_like(prisms.density),
     # )  # unit density, list of ones
     # # Calculate shift to prism's densities to minimize misfit
-    # Density_correction=lsqr(MAT_DENS,df_grav.inv_misfit,show=False)[0]*1000
+    # Density_correction=sp.sparse.linalg.lsqr(
+    #   MAT_DENS,df_grav.inv_misfit,show=False)[0]*1000
 
     # apply max density change
     for i in range(0, len(prisms)):
