@@ -428,15 +428,16 @@ def synthetic_topography_simple(
 
     # create topographic features
     # regional
-    f1 = exponential_surface(
-        x,
-        y,
-        region,
-        base_level=-300,
-        scaling=-500,
-        decay=1e10,
-        x_shift=x_range * 0.4,
-        y_shift=y_range * -0.2,
+    f1 = (
+        gaussian2d(
+            x,
+            y,
+            sigma_x=x_range * 1.6,
+            sigma_y=y_range * 1.6,
+            x0=region[0] + x_range * 0.9,
+            y0=region[2] + y_range * 0.3,
+        )
+        * -800
     )
 
     # high-frequency
