@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 import optuna
 import pandas as pd
 import pygmt
@@ -305,7 +306,7 @@ def forward_grav_of_prismlayer(
     plot: bool = True,
     **kwargs,
 ):
-    df = observation_points
+    df = copy.deepcopy(observation_points)
 
     for i, p in enumerate(prisms):
         grav = p.prism_layer.gravity(
@@ -975,7 +976,6 @@ def optimize_regional_loop(
 
 def plot_best_param(study, regional_method=None, **kwargs):
 
-
     best = study.sort_values(by="value").iloc[0]
 
     if regional_method is None:
@@ -1001,12 +1001,16 @@ def plot_best_param(study, regional_method=None, **kwargs):
             f"Method: {regional_method} (Source depth={int(best.params_param/1e3)}km)"
         )
 
+    score = best.value
+
     anom_grids = plots.anomalies_plotting(
         df_anomalies,
         region=kwargs["inversion_region"],
         grav_spacing=kwargs["grav_spacing"],
-        title=title + f" RMSE: {round(rmse,2)} mGal",
+        title=title + f" Optimization score: {round(score,2)} mGal",
         constraints=kwargs["constraints"],
+        input_forward_column=kwargs.get('input_forward_column', 'forward') ,
+        input_grav_column=kwargs.get('input_grav_column', 'grav'),
     )
 
     if kwargs["method"] == "regional comparison":
