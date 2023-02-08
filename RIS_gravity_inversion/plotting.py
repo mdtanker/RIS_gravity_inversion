@@ -865,7 +865,6 @@ def anomalies_plotting(
     # get columns to include in gridding
     cols_to_grid = [
         input_grav_column,
-        "forward_total",
         "misfit",
         input_forward_column,
         "reg",
@@ -878,7 +877,6 @@ def anomalies_plotting(
     # set titles for grids
     plot_titles = [
         "observed gravity (corr)",
-        "forward gravity",
         "gravity misfit",
         "forward gravity",
         "regional misfit",
