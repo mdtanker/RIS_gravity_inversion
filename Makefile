@@ -8,7 +8,7 @@ STYLE_CHECK_FILES= . #$(PROJECT)
 #
 #
 #
-install:
+install: delete_env
 	mamba env create --file env/environment.yml --name RIS_gravity_inversion
 
 delete_env:

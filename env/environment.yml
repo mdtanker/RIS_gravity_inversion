@@ -35,4 +35,5 @@ dependencies:
   - pip
   - pip:
     - numba-progress
+    - snakeviz
     - --editable ../../antarctic_plots

@@ -7,7 +7,7 @@
    viewBox="0 0 297 210"
    version="1.1"
    id="svg5"
-   inkscape:version="1.2.1 (9c6d41e410, 2022-07-14)"
+   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
    sodipodi:docname="synthetic_model_simple_density_contrast.svg"
    inkscape:export-filename="absolute_vs_density_contrasts.png"
    inkscape:export-xdpi="200"
@@ -27,15 +27,16 @@
      inkscape:deskcolor="#505050"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="0.51581013"
-     inkscape:cx="398.40241"
-     inkscape:cy="316.00775"
-     inkscape:window-width="1536"
-     inkscape:window-height="811"
-     inkscape:window-x="-8"
-     inkscape:window-y="-8"
+     inkscape:zoom="1.2762157"
+     inkscape:cx="568.86935"
+     inkscape:cy="299.71422"
+     inkscape:window-width="1920"
+     inkscape:window-height="1025"
+     inkscape:window-x="1713"
+     inkscape:window-y="0"
      inkscape:window-maximized="1"
-     inkscape:current-layer="layer1" />
+     inkscape:current-layer="layer1"
+     inkscape:pageshadow="2" />
   <defs
      id="defs2">
     <marker
@@ -110,6 +111,92 @@
        height="145.14885"
        x="1.5253183"
        y="1.9487021" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="211.80524"
+       y="91.358841"
+       id="text591-3-7-6-7-9-4-2-0-5"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="211.80524"
+         y="91.358841">+Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2174">L2</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="204.20479"
+       y="121.93205"
+       id="text591-3-7-6-7-9-4-2-0-5-3"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-8"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="204.20479"
+         y="121.93205">-Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2174-5">L2</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="127.21774"
+       y="74.850052"
+       id="text591-3-7-6-7-9-4-2-0-5-1-5"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-0-7"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="127.21774"
+         y="74.850052">Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2126-2">L2</tspan> =  ρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2122-7">rock</tspan>  - ρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2124-9">ice</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="243.50151"
+       y="40.48682"
+       id="text591-3-7-6-7-9-4-2-0-1"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-3"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="243.50151"
+         y="40.48682">+Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2170">L1</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="249.64897"
+       y="59.926403"
+       id="text591-3-7-6-7-9-4-2-6-7-3"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-4-8-5"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="249.64897"
+         y="59.926403">-Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2172">L1</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="129.30585"
+       y="31.49828"
+       id="text591-3-7-6-7-9-4-2-0-5-1"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-0"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="129.30585"
+         y="31.49828">Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2126">L1</tspan> =  ρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2122">ice</tspan>  - ρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2124">air</tspan></tspan></text>
     <path
        style="display:inline;fill:none;stroke:#000000;stroke-width:8.51731e-06;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
        d="m 8.4154342,93.334948 c 0,0 30.8296518,-21.206529 35.8194218,-37.957896 5.504006,-18.477725 9.686201,-11.654603 16.57317,6.771828 7.882879,21.091044 29.225794,26.018104 29.225794,26.018104"
@@ -211,16 +298,16 @@
          x="66.741341"
          y="72.060684"
          sodipodi:role="line"
-         id="tspan962-1-8-1-5">Water</tspan></text>
+         id="tspan962-1-8-1-5">Ice</tspan></text>
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:4.47082px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
        x="17.93368"
-       y="59.143764"
+       y="58.614597"
        id="text591-6-9-3-8-8-6"><tspan
          style="font-size:4.47082px;stroke-width:0.186283"
          x="17.93368"
-         y="59.143764"
+         y="58.614597"
          sodipodi:role="line"
          id="tspan962-1-8-1-5-7">Layer 1</tspan></text>
     <text
@@ -402,28 +489,6 @@
        height="3.7189155"
        x="272.21579"
        y="52.762146" />
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="221.83762"
-       y="40.037857"
-       id="text591-3-7-6-7-9-4-2-0"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-0"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="221.83762"
-         y="40.037857">+Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="223.37062"
-       y="60.203945"
-       id="text591-3-7-6-7-9-4-2-6-7"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-4-8"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="223.37062"
-         y="60.203945">-Δρ </tspan></text>
     <path
        style="display:inline;fill:none;stroke:#000000;stroke-width:8.08956e-06;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
        d="m 126.68549,124.67433 c 0,0 29.28138,-20.14154 34.02057,-36.051633 5.22759,-17.549767 9.19974,-11.069308 15.74086,6.431734 7.48699,20.031859 27.75805,24.711469 27.75805,24.711469"
@@ -611,72 +676,6 @@
        height="7.6547418"
        x="271.61963"
        y="110.46055" />
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="146.41486"
-       y="103.87462"
-       id="text591-3-7-6-7-9-4-2-2"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-46"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="146.41486"
-         y="103.87462">+Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="218.2187"
-       y="91.120193"
-       id="text591-3-7-6-7-9-4-2-0-5"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-0-8"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="218.2187"
-         y="91.120193">+Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="111.85934"
-       y="116.30586"
-       id="text591-3-7-6-7-9-4-2-6-0"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-4-88"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="111.85934"
-         y="116.30586">-Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="178.5878"
-       y="115.18252"
-       id="text591-3-7-6-7-9-4-2-6-6-6"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-4-1-9"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="178.5878"
-         y="115.18252">-Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="202.58379"
-       y="122.46542"
-       id="text591-3-7-6-7-9-4-2-6-7-4"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-4-8-2"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="202.58379"
-         y="122.46542">-Δρ </tspan></text>
-    <text
-       xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:5.22367px;line-height:1.25;font-family:sans-serif;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
-       x="258.4791"
-       y="120.16386"
-       id="text591-3-7-6-7-9-4-2-6-1-8"><tspan
-         sodipodi:role="line"
-         id="tspan589-3-9-5-7-7-6-5-4-18-3"
-         style="font-size:5.22367px;stroke-width:0.186283"
-         x="258.4791"
-         y="120.16386">-Δρ </tspan></text>
     <path
        style="fill:none;stroke:#785604;stroke-width:1.16025;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
        d="M 9.1843638,92.263958 C 15.715889,88.117694 32.928351,74.530864 42.022604,60.088611 c 1.072452,-1.70312 4.583822,-14.639887 7.955039,-16.240213 8.450462,1.197792 6.622306,34.035599 38.67598,44.32211"
@@ -696,5 +695,44 @@
        d="m 91.263928,88.145825 17.894132,9.336064"
        id="path67605-9"
        sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="117.98624"
+       y="120.08251"
+       id="text591-3-7-6-7-9-4-2-0-5-3-2"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-8-2"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="117.98624"
+         y="120.08251">-Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2174-5-4">L2</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="171.90479"
+       y="118.5018"
+       id="text591-3-7-6-7-9-4-2-0-5-3-2-5"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-8-2-3"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="171.90479"
+         y="118.5018">-Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2174-5-4-1">L2</tspan> </tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;letter-spacing:0px;word-spacing:0px;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.186283"
+       x="143.67433"
+       y="99.862831"
+       id="text591-3-7-6-7-9-4-2-0-5-7"><tspan
+         sodipodi:role="line"
+         id="tspan589-3-9-5-7-7-6-5-0-8-2"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.29167px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.186283"
+         x="143.67433"
+         y="99.862831">+Δρ<tspan
+   style="font-size:65%;baseline-shift:sub"
+   id="tspan2174-56">L2</tspan> </tspan></text>
   </g>
 </svg>
