@@ -1,6 +1,6 @@
 import numpy as np
 import copy
-import optuna
+
 import pandas as pd
 import pygmt
 import verde as vd
@@ -8,9 +8,12 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import harmonica as hm
 from antarctic_plots import fetch, profile, utils, maps
-from optuna.visualization import plot_optimization_history, plot_slice
-import seaborn as sns
+import plotly
 from typing import TYPE_CHECKING, Union
+import os, sys
+import warnings
+import contextlib
+import seaborn as sns
 
 import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.plotting as plots
@@ -161,7 +164,7 @@ def import_layers(
         print(f"from {prior_len} points to {post_len} points")
 
     # center gravity around 0
-    grav[input_grav_name] -= grav[input_grav_name].mean()
+    grav[input_grav_name] -= np.median(grav[input_grav_name])
 
     # set standard names
     grav.rename(
@@ -301,7 +304,7 @@ def forward_grav_of_prismlayer(
     prisms: list,
     observation_points: pd.DataFrame,
     names: list,
-    remove_mean=False,
+    remove_median=False,
     progressbar=False,
     plot: bool = True,
     **kwargs,
@@ -316,8 +319,8 @@ def forward_grav_of_prismlayer(
         )
 
         # center around 0
-        if remove_mean is True:
-            grav -= grav.mean()
+        if remove_median is True:
+            grav -= np.median(grav)
 
         # add to dataframe
         df[names[i]]=grav
@@ -325,8 +328,8 @@ def forward_grav_of_prismlayer(
     # add all together
     df["forward_total"] = df[names].sum(axis=1, skipna=True)
 
-    if remove_mean is True:
-        df.forward_total -= df.forward_total.mean()
+    if remove_median is True:
+        df.forward_total -= df.forward_total.median()
 
     # grid each column into a common dataset
     grids = df.set_index(["y", "x"]).to_xarray()
@@ -340,6 +343,8 @@ def forward_grav_of_prismlayer(
                     cbar_label="mGal",
                     title=n,
                     coast=False,
+                    hist=True,
+                    cbar_yoffset=3,
                 )
             else:
                 fig = maps.plot_grd(
@@ -348,6 +353,8 @@ def forward_grav_of_prismlayer(
                     cbar_label="mGal",
                     title=n,
                     coast=False,
+                    hist=True,
+                    cbar_yoffset=3,
                     fig=fig,
                     origin_shift="xshift",
                 )
@@ -523,12 +530,12 @@ def gravity_decay_buffer(
 
     # get max decay value inside the region of interest
     if density_contrast is True:
-        max_decay = (abs(grav.values.min())-grav.values.max())/(grav.values.max()*2)
+        # max_decay = (abs(grav.values.min())-grav.values.max())/(grav.values.max()*2)
+        max_decay = 10
     else:
         max_decay = (grav.values.max()-grav.values.min())/grav.values.max()
 
     if plot is True:
-
         results = f"maximum decay: {int(max_decay*100)}% \n" \
             f"buffer: {buffer_perc}% / {buffer_width}m / {int(buffer_cells)} cells"
 
@@ -555,11 +562,11 @@ def gravity_decay_buffer(
             profile.plot_profile(
                 "points",
                 start=(
-                    interest_region[0],
-                    (interest_region[3]-interest_region[2])/2),
+                    buffer_region[0],
+                    (buffer_region[3]-buffer_region[2])/2),
                 stop=(
-                    interest_region[1],
-                    (interest_region[3]-interest_region[2])/2),
+                    buffer_region[1],
+                    (buffer_region[3]-buffer_region[2])/2),
                 layers_dict = layers_dict,
                 data_dict = data_dict,
                 add_map = True,
@@ -603,119 +610,8 @@ def gravity_decay_buffer(
     return max_decay, buffer_width, buffer_cells, grav
 
 
-def optimal_buffer(
-    top,
-    reference,
-    spacing,
-    interest_region,
-    density,
-    obs_height,
-    target,
-    buffer_perc_range=[1,50],
-    n_trials=25,
-    density_contrast=False,
-    checkerboard=False,
-    amplitude=None,
-    wavelength=None,
-    full_search=False,
-    ):
-    def objective(
-        trial,
-        top,
-        reference,
-        spacing,
-        interest_region,
-        density,
-        target,
-        obs_height,
-        checkerboard,
-        density_contrast,
-        amplitude,
-        wavelength,
-        ):
-        """
-        Find buffer percentage which gives a max decay within the region of interest closest
-        to target percentage (i.e., target=5 is 5% decay).
-        """
-        buffer_perc = trial.suggest_int("buffer_perc", buffer_perc_range[0], buffer_perc_range[1])
-
-        max_decay = gravity_decay_buffer(
-            buffer_perc = buffer_perc,
-            top = top,
-            reference = reference,
-            spacing = spacing,
-            interest_region = interest_region,
-            density = density,
-            obs_height=obs_height,
-            checkerboard=checkerboard,
-            density_contrast=density_contrast,
-            amplitude=amplitude,
-            wavelength=wavelength,
-            )[0]
-
-        return np.abs((target/100)-max_decay)
-
-    # Create a new study
-    if full_search is True:
-        study = optuna.create_study(
-            direction="minimize",
-            sampler=optuna.samplers.GridSampler(
-                search_space={"buffer_perc":list(range(buffer_perc_range[0],buffer_perc_range[1]))})
-            )
-    else:
-        study = optuna.create_study(
-            direction="minimize",
-            )
-
-    # Disable logging
-    optuna.logging.set_verbosity(optuna.logging.WARN)
-
-    # add custom logging function
-    def logging_callback(study, frozen_trial):
-        previous_best_value = study.user_attrs.get("previous_best_value", None)
-        if previous_best_value != study.best_value:
-            study.set_user_attr("previous_best_value", study.best_value)
-            print(
-                "Trial {} finished with best value: {} and parameters: {}. ".format(
-                frozen_trial.number,
-                frozen_trial.value,
-                frozen_trial.params,
-                )
-            )
-
-    # run optimization
-    study.optimize(lambda trial:
-        objective(
-            trial,
-            top,
-            reference,
-            spacing,
-            interest_region,
-            density,
-            target,
-            obs_height,
-            checkerboard,
-            density_contrast,
-            amplitude,
-            wavelength,
-        ),
-        n_trials=n_trials,
-        callbacks=[logging_callback],
-    )
-
-    print(study.best_params)
-
-    plot = plot_optimization_history(study)
-    plot2 = plot_slice(study)
-
-    plot.show()
-    plot2.show()
-
-    return study, study.trials_dataframe().sort_values(by="value")
-
-
 def regional_seperation_quality(
-    method,
+    comparison_method,
     input_grav,
     input_forward_column,
     input_grav_column,
@@ -725,6 +621,7 @@ def regional_seperation_quality(
     constraints,
     regional_method,
     param,
+    **kwargs,
 ):
     """
     Evaluate the effectiveness of the regional-residual seperation of the gravity
@@ -755,19 +652,19 @@ def regional_seperation_quality(
         # fill_method='rioxarray',
         # constraint kwargs
         constraints=constraints,
-        tension_factor=param/10,
+        tension_factor=param,
         # eq sources kwargs
         eq_sources=param,
         depth_type="relative",
         eq_damping=None,
-        block_size=grav_spacing,
+        block_size=kwargs.get("block_size", grav_spacing),
     )
 
-    if method == "regional comparison":
+    if comparison_method == "regional_comparison":
         # compare the true regional gravity with the calculated regional
         df = profile.sample_grids(df_anomalies, true_regional, "true_regional")
-        rms = inv.RMSE(df.true_regional - df.reg)
-    elif method == "minimize constraints":
+        rmse = inv.RMSE(df.true_regional - df.reg)
+    elif comparison_method == "minimize_constraints":
         # grid the residuls
         residuals = pygmt.xyz2grd(
             data=df_anomalies[["x", "y", "res"]],
@@ -778,256 +675,30 @@ def regional_seperation_quality(
         )
         # sample the residuals at the constraint points
         df = profile.sample_grids(constraints, residuals, "residuals")
-        rms = inv.RMSE(df.residuals)
+        rmse = inv.RMSE(df.residuals)
+    else:
+        raise ValueError("comparison method must be either `regional_comparison` or `minimize_constraints`")
 
-    return rms, df_anomalies
-
-
-class optuna_regional_RMSE_together:
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        self.method = kwargs["method"]
-        self.true_regional = kwargs["true_regional"]
-        self.input_grav = kwargs["input_grav"]
-        self.input_forward_column = kwargs["input_forward_column"]
-        self.input_grav_column = kwargs["input_grav_column"]
-        self.grav_spacing = kwargs["grav_spacing"]
-        self.inversion_region = kwargs["inversion_region"]
-        self.constraints = kwargs["constraints"]
-
-    def __call__(self, trial):
-
-        regional_method = trial.suggest_categorical(
-            "method",
-            ["filter", "trend", "constraints", "eq_sources"],
-        )
-
-        if regional_method == "filter":
-            param = trial.suggest_int("param", 1e3, 1001e3, step=1e3)
-        elif regional_method == "trend":
-            param = trial.suggest_int("param", 1, 20, step=1)
-        elif regional_method == "constraints":
-            param = trial.suggest_int("param", 0, 10) # later divided by 10
-        elif regional_method == "eq_sources":
-            param = trial.suggest_int("param", 10e3, 10010e3, step=10e3)
-
-        rmse, df = regional_seperation_quality(
-            method=self.method,
-            true_regional=self.true_regional,
-            input_grav=self.input_grav,
-            input_forward_column=self.input_forward_column,
-            input_grav_column=self.input_grav_column,
-            grav_spacing=self.grav_spacing,
-            inversion_region=self.inversion_region,
-            constraints=self.constraints,
-            regional_method=regional_method,
-            param=param,
-        )
-        return rmse
+    return rmse, df_anomalies
 
 
-class optuna_regional_RMSE:
-    def __init__(
-        self,
-        regional_method,
-        **kwargs,
-    ):
-        self.method = kwargs["method"]
-        self.regional_method = regional_method
-        self.true_regional = kwargs["true_regional"]
-        self.input_grav = kwargs["input_grav"]
-        self.input_forward_column = kwargs["input_forward_column"]
-        self.input_grav_column = kwargs["input_grav_column"]
-        self.grav_spacing = kwargs["grav_spacing"]
-        self.inversion_region = kwargs["inversion_region"]
-        self.constraints = kwargs["constraints"]
+class HiddenPrints:
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
 
-    def __call__(self, trial):
-        if self.regional_method == "filter":
-            param = trial.suggest_int("param", 1e3, 1001e3, step=1e3)
-        elif self.regional_method == "trend":
-            param = trial.suggest_int("param", 1, 20, step=1)
-        elif self.regional_method == "constraints":
-            param = trial.suggest_int("param", 0, 10)  # later divided by 10
-        elif self.regional_method == "eq_sources":
-            param = trial.suggest_int("param", 10e3, 10010e3, step=10e3)
-
-        rmse, df = regional_seperation_quality(
-            method=self.method,
-            true_regional=self.true_regional,
-            input_grav=self.input_grav,
-            input_forward_column=self.input_forward_column,
-            input_grav_column=self.input_grav_column,
-            grav_spacing=self.grav_spacing,
-            inversion_region=self.inversion_region,
-            constraints=self.constraints,
-            regional_method=self.regional_method,
-            param=param,
-        )
-        return rmse
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout.close()
+        sys.stdout = self._original_stdout
 
 
-def logging_callback(study, frozen_trial):
-        previous_best_value = study.user_attrs.get("previous_best_value", None)
-        if previous_best_value != study.best_value:
-            study.set_user_attr("previous_best_value", study.best_value)
-            print(
-                "Trial {} finished with best value: {} and parameters: {}. ".format(
-                frozen_trial.number,
-                frozen_trial.value,
-                frozen_trial.params,
-                )
-            )
+def supress_stdout(func):
+    def wrapper(*a, **ka):
+        with open(os.devnull, 'w') as devnull:
+            with contextlib.redirect_stdout(devnull):
+                return func(*a, **ka)
+    return wrapper
 
 
-def optimize_regional_together(
-    n_trials,
-    plot_history=True,
-    plot_results=True,
-    **kwargs,
-):
-    # Create a new study
-    study = optuna.create_study(
-        direction="minimize",
-    )
-
-    # Disable logging
-    optuna.logging.set_verbosity(optuna.logging.WARN)
-
-    # Invoke optimization of the objective function
-    study.optimize(
-        optuna_regional_RMSE_together(
-            **kwargs,
-        ),
-        n_trials=n_trials,
-        callbacks=[logging_callback],
-    )
-
-    # Print the best result
-    print(f"Best result: {study.best_params}")
-
-    if plot_history is True:
-        plot_optimization_history(study).show()
-
-    if plot_results is True:
-        plot_slice(study).show()
-
-    result = study.trials_dataframe().sort_values(by="value")
-
-    return result, result.params_method.iloc[0]
 
 
-def optimize_regional(
-    n_trials,
-    regional_method,
-    plot_history=True,
-    plot_results=True,
-    **kwargs,
-):
-    # Create a new study
-    study = optuna.create_study(
-        direction="minimize",
-    )
-
-    # Disable logging
-    optuna.logging.set_verbosity(optuna.logging.WARN)
-
-    # Invoke optimization of the objective function
-    study.optimize(
-        optuna_regional_RMSE(
-            regional_method,
-            **kwargs,
-        ),
-        n_trials=n_trials,
-        callbacks=[logging_callback],
-    )
-
-    # Print the best result
-    print(f"Method: {regional_method}, best result: {study.best_params}")
-
-    if plot_history is True:
-        plot_optimization_history(study).show()
-
-    if plot_results is True:
-        plot_slice(study).show()
-
-    return study.trials_dataframe()
-
-
-def optimize_regional_loop(
-    n_trials,
-    plot_history=True,
-    plot_results=True,
-    **kwargs,
-):
-    study_dfs = []
-    study_names = []
-    for i in ["filter", "trend", "constraints", "eq_sources"]:
-        results = optimize_regional(n_trials, i, plot_history, plot_results, **kwargs)
-        study_dfs.append(results.sort_values(by="value"))
-        study_names.append(i)
-
-    studies = dict(zip(study_names, study_dfs))
-
-    return studies
-
-
-def plot_best_param(study, regional_method=None, **kwargs):
-
-    best = study.sort_values(by="value").iloc[0]
-
-    if regional_method is None:
-        regional_method = best.params_method
-
-    print(f"\n{'':#<10} {regional_method} {'':#>10}")
-    print(best[["params_param", "value"]])
-
-    rmse, df_anomalies = regional_seperation_quality(
-        regional_method=regional_method,
-        param=7,
-        **kwargs,
-    )
-
-    if regional_method == "filter":
-        title = f"Method: {regional_method} (g{int(best.params_param/1e3)}km)"
-    elif regional_method == "trend":
-        title = f"Method: {regional_method} (order={best.params_param})"
-    elif regional_method == "constraints":
-        title = f"Method: {regional_method} (tension factor={best.params_param/10})"
-    elif regional_method == "eq_sources":
-        title = (
-            f"Method: {regional_method} (Source depth={int(best.params_param/1e3)}km)"
-        )
-
-    score = best.value
-
-    anom_grids = plots.anomalies_plotting(
-        df_anomalies,
-        region=kwargs["inversion_region"],
-        grav_spacing=kwargs["grav_spacing"],
-        title=title + f" Optimization score: {round(score,2)} mGal",
-        constraints=kwargs["constraints"],
-        input_forward_column=kwargs.get('input_forward_column', 'forward') ,
-        input_grav_column=kwargs.get('input_grav_column', 'grav'),
-    )
-
-    if kwargs["method"] == "regional comparison":
-        _ = utils.grd_compare(
-            kwargs["true_regional"],
-            anom_grids["reg"],
-            plot=True,
-            region=kwargs["inversion_region"],
-            plot_type="xarray",
-            cmap="RdBu_r",
-            title=title,
-            grid1_name="True regional misfit",
-            grid2_name="best regional misfit",
-        )
-
-    return df_anomalies
-
-def plot_best_params_per_method(studies, **kwargs):
-    for k, v in studies.items():
-        plot_best_param(studies[k], k, **kwargs)
