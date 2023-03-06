@@ -21,30 +21,30 @@ import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.plotting as plots
 
 
-  
+
 def prep_grav_data(
-    grav_df: pd.DataFrame, 
-    input_grav_name: str, 
+    grav_df: pd.DataFrame,
+    input_grav_name: str,
     input_coord_names: list,
-    region: list = None, 
+    region: list = None,
 ):
     """
-    prep gravity dataframe to expected format for other functions. We use the same conventions as Harmonca, 'easting' and 'northing' for the horizontal coordinates, and 'upward' for the vertical coordinate, all in meters. We use 'Gobs' to denote the observed gravity, whether its a free-air anomaly, gravity disturbance, or raw measured gravity. 
+    prep gravity dataframe to expected format for other functions. We use the same conventions as Harmonca, 'easting' and 'northing' for the horizontal coordinates, and 'upward' for the vertical coordinate, all in meters. We use 'Gobs' to denote the observed gravity, whether its a free-air anomaly, gravity disturbance, or raw measured gravity.
     """
-    
+
     # set standard column names
     grav = grav_df.rename(
-        columns={input_grav_name: "Gobs", 
+        columns={input_grav_name: "Gobs",
                  input_coord_names[0]: "easting",
                  input_coord_names[1]: "northing",
                  input_coord_names[2]: "upward",
                 },
     )
-    
+
     # remove points outside of region of interest
     if region is not None:
         grav = utils.points_inside_region(grav, region=region, names=["easting","northing"])
-    
+
     # center gravity around 0
     grav.Gobs -= np.median(grav.Gobs)
 
@@ -57,15 +57,15 @@ def prep_grav_data(
 
 
 def block_reduce_gravity(
-    grav_df, 
+    grav_df,
     spacing,
     registration="g",
     method="verde",
 ):
-    
+
     # copy dataframe
     grav = grav_df.copy()
-    
+
     # get number of grav points before reduction
     prior_len = len(grav.Gobs)
 
@@ -76,7 +76,7 @@ def block_reduce_gravity(
             spacing=spacing,
             center_coordinates=False, # center of block, or block median of coords
             adjust="spacing", # adjust "spacing" or "region"
-            drop_coords = False, 
+            drop_coords = False,
         )
 
         coordinates, data = reducer.filter(
@@ -107,27 +107,27 @@ def block_reduce_gravity(
             spacing = spacing,
             registration = registration,
         ).Gobs
-        
+
         grav = blocked.copy()
 
     else:
         raise ValueError("invalid string for Block Reduction type")
-    
+
     # get number of grav points after reduction
     post_len = len(grav.Gobs)
 
 
     print(f"Block-reduced the gravity data at {int(spacing)}m spacing")
     print(f"from {prior_len} points to {post_len} points")
-    
+
     return grav
-    
+
 def eq_sources_score(params, coordinates, data, **kwargs):
 
     eqs = hm.EquivalentSources(
-        damping=params.get('damping'), 
+        damping=params.get('damping'),
         depth=params.get('depth'),
-        **kwargs,        
+        **kwargs,
     )
     score = np.mean(
         vd.cross_val_score(
@@ -141,7 +141,7 @@ def eq_sources_score(params, coordinates, data, **kwargs):
 
 def parallel_eq_sources_scores(parameter_sets, coordinates, data, **kwargs):
     n_jobs = len(psutil.Process().cpu_affinity())
-    
+
     with tqdm_joblib(desc="Calculating scores", total=len(parameter_sets)) as progress_bar:
         scores = joblib.Parallel(n_jobs=n_jobs)(
             joblib.delayed(eq_sources_score)(i, coordinates, data, **kwargs)
@@ -151,14 +151,14 @@ def parallel_eq_sources_scores(parameter_sets, coordinates, data, **kwargs):
 
 def eq_sources_best_param(parameter_sets, coordinates, data, **kwargs):
     scores = parallel_eq_sources_scores(parameter_sets, coordinates, data, **kwargs)
-    
+
     best = np.argmax(scores)
     print("Best score:", scores[best])
     print("Best parameters:", parameter_sets[best])
 
     eqs_best = hm.EquivalentSources(**parameter_sets[best], **kwargs).fit(
         coordinates, data)
-    
+
     return eqs_best
 
 
@@ -167,23 +167,23 @@ def eq_sources_best(parameter_sets, coordinates, data, region, spacing, height=N
     Test a suite of damping and depth parameters, pick the best resulting parameters, and predict the gravity on a regular grid. Set the observation height to upwards continue to, or use the max height of the orignal data (default).
     """
     eqs_best = eq_sources_best_param(parameter_sets, coordinates, data, **kwargs)
-    
+
     if height is None:
         height = coordinates[2].max()
-        
+
     grid_coords = vd.grid_coordinates(
         region=region,
         spacing=spacing,
         extra_coords=height,
     )
-    
+
     grid = eqs_best.grid(grid_coords, data_names=["predicted_grav"]).predicted_grav
-    
+
     df = vd.grid_to_table(grid)
     df['upward']=height
-    
+
     return eqs_best, grid, df
-    
+
 
 def normalize_xarray(da, low=0, high=1):
 
@@ -234,7 +234,7 @@ def forward_grav_of_prismlayer(
     **kwargs,
 ):
     df = copy.deepcopy(observation_points)
-    
+
     for i, p in enumerate(prisms):
         grav = p.prism_layer.gravity(
             coordinates=(df.easting, df.northing, df.upward),
@@ -579,8 +579,8 @@ def regional_seperation_quality(
     if comparison_method == "regional_comparison":
         # compare the true regional gravity with the calculated regional
         df = profile.sample_grids(
-            df_anomalies, 
-            true_regional, 
+            df_anomalies,
+            true_regional,
             "true_regional",
             coord_names = ("easting", "northing"),
         )
@@ -596,9 +596,9 @@ def regional_seperation_quality(
         )
         # sample the residuals at the constraint points
         df = profile.sample_grids(
-            constraints, 
-            residuals, 
-            "residuals", 
+            constraints,
+            residuals,
+            "residuals",
             coord_names = ("easting", "northing"),
         )
         rmse = inv.RMSE(df.residuals)
