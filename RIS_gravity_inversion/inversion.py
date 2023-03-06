@@ -1,5 +1,6 @@
 import copy
 import functools
+import itertools
 import time
 import warnings
 from typing import TYPE_CHECKING, Union
@@ -13,7 +14,6 @@ import scipy as sp
 import verde as vd
 import xarray as xr
 from antarctic_plots import fetch, maps, profile, utils
-import RIS_gravity_inversion.plotting as plots
 import RIS_gravity_inversion.utils as inv_utils
 
 warnings.filterwarnings("ignore", message="pandas.Int64Index")
@@ -58,19 +58,9 @@ def inverted_prisms_to_zero(surface, reference):
 
 def misfit(
     input_grav: pd.DataFrame,
-    grav_spacing: int,
-    registration="g",
-    plot=True,
-    **kwargs,
+    input_forward_column: str = "forward",
+    input_grav_column: str = "Gobs_corr",
 ):
-    input_forward_column = kwargs.get("input_forward_column", "forward")
-    input_grav_column = kwargs.get("input_grav_column", "grav")
-
-    # if inversion region not supplied, extract from dataframe
-    inversion_region = kwargs.get(
-        "inversion_region", vd.get_region((input_grav.x, input_grav.y))
-    )
-
     # if misfit already calculated, drop the column
     try:
         input_grav.drop(columns=["misfit"], inplace=True)
@@ -80,14 +70,154 @@ def misfit(
     # get obs-forward misfit
     input_grav["misfit"] = input_grav[input_grav_column] - input_grav[input_forward_column]
 
-    if plot is True:
-        plots.misfit_plotting(
-            input_grav,
-            grav_spacing=grav_spacing,
-            **kwargs
-            )
-
     return input_grav
+
+
+def regional_trend(
+    trend: int,
+    misfit_grid: xr.DataArray,
+    anomalies: pd.DataFrame,
+    fill_method: str = "rioxarray",
+    crs: str = None,
+):
+    """
+    seperate the regional field with a trend
+    """
+    # fill misfit nans with 1 of 2 methods
+    if fill_method == "pygmt":
+        misfit_filled = pygmt.grdfill(misfit_grid, mode="n").rename("grav")
+    elif fill_method == "rioxarray":
+        misfit_grid = misfit_grid.rio.write_crs(crs)
+        misfit_filled = (
+            misfit_grid.rio.write_nodata(np.nan).rio.interpolate_na().rename("grav")
+        )
+    else:
+        raise ValueError("invalid string for fill_method")
+
+    df = vd.grid_to_table(misfit_filled).astype("float64")
+
+    trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.grav)
+    anomalies["reg"] = trend.predict((anomalies.easting, anomalies.northing))
+     
+    return anomalies
+
+
+def regional_filter(
+    filter_width: str,
+    misfit_grid: xr.DataArray,
+    anomalies: pd.DataFrame,
+    registration: str = "g",
+):
+    """
+    seperate the regional field with a low-pass filter
+    """
+    
+    # filter the observed-forward misfit with the provided filter in meters
+    regional_misfit = pygmt.grdfilter(
+        misfit_grid,
+        filter=filter_width,
+        distance="0",
+        registration=registration,
+    )
+    # sample the results and merge into the anomalies dataframe
+    tmp_regrid = pygmt.grdtrack(
+        points=anomalies[["easting", "northing"]],
+        grid=regional_misfit,
+        newcolname="reg",
+        verbose="q",
+    )
+    anomalies = anomalies.merge(tmp_regrid, on=["easting", "northing"], how="left")
+    
+    return anomalies
+
+
+def regional_constraints(
+    constraint_points : pd.DataFrame,
+    tension_factor : float,
+    misfit_grid: xr.DataArray,
+    anomalies: pd.DataFrame,
+    region: list,
+    spacing: float,
+    registration: str = "g",
+    block_reduce = False,
+):
+    """
+    seperate the regional field by sampling and regridding at the constraint points
+    """
+    
+    constraints_df = constraint_points.copy()
+    
+     # sample misfit at constraint points
+    constraints_df = profile.sample_grids(
+        df=constraints_df,
+        grid=misfit_grid,
+        name="misfit",
+        coord_names = ("easting", "northing"),
+    )
+    
+    if block_reduce is True:
+        # get median misfit of constraint points in each 1km cell
+        constraints_df = pygmt.blockmedian(
+            data=constraints_df[["easting", "northing", "misfit"]],
+            spacing=grav_spacing,
+            region=inversion_region,
+            registration=registration,
+        )
+    
+    # grid the entire region misfit based just on the misfit at the constraints
+    regional_misfit = pygmt.surface(
+        data = constraints_df[["easting", "northing", "misfit"]],
+        region = region,
+        spacing = spacing,
+        registration = registration,
+        T = tension_factor,
+        verbose = "q",
+    )
+
+    # sample the resulting grid and add to anomalies dataframe
+    anomalies = profile.sample_grids(
+        df = anomalies,
+        grid = regional_misfit,
+        name = "reg",
+        coord_names = ("easting", "northing"),
+    )
+    
+    return anomalies
+
+
+def regional_eq_sources(
+    source_depth : float,
+    misfit_grid: xr.DataArray,
+    anomalies: pd.DataFrame,
+    eq_damping: float = None,
+    block_size: float = None,
+    depth_type: str = "relative",
+
+):
+    """
+    seperate the regional field by estimating deep equivalent sources
+    
+    eq_damping : float: smoothness to impose on estimated coefficients
+    block_size : float: block reduce the data to speed up
+    depth_type : str: constant depths, not relative to observation heights
+    """
+    # create set of deep sources
+    equivalent_sources = hm.EquivalentSources(
+        depth = source_depth,
+        damping = eq_damping, 
+        block_size = block_size, 
+        depth_type = depth_type,  
+    )
+    
+    # fit the source coefficients to the data
+    coordinates = (anomalies.easting, anomalies.northing, anomalies.upward)
+    equivalent_sources.fit(coordinates, anomalies.misfit)
+    
+    # use sources to predict the regional field at the observation points
+    anomalies["reg"] = equivalent_sources.predict(coordinates)
+    
+    return anomalies
+
 
 def regional_seperation(
     input_grav: pd.DataFrame,
@@ -97,12 +227,16 @@ def regional_seperation(
     registration="g",
     **kwargs,
 ):
-    # must provide kwargs with same name as method type.
-    # for example, if regional_method='trend', must provide a trend order via the kwarg
-    # 'trend'=6.
-    # for constraints, kwarg is a dataframe of constraint points
-    # for filter, kwarg is a pygmt filter string, such as "g150e3" for a 150km gaussian
-    # for eq_sources, kwargs is depth of sources in meters
+    """
+    Seperate the regional and resiudal fields of gravity data with 1 of 4 methods.
+    
+    must provide kwargs with same name as method type.
+    for example, if regional_method='trend', must provide a trend order via the kwarg
+    'trend'=6.
+    for constraints, kwarg is gridding tension factor
+    for filter, kwarg is a pygmt filter string, such as "g150e3" for a 150km gaussian
+    for eq_sources, kwargs is depth of sources in meters
+    """
     if kwargs.get(regional_method) is None:
         raise ValueError(
             f"Must provide keyword argument '{regional_method}' if regional_method ="
@@ -114,7 +248,7 @@ def regional_seperation(
 
     # if inversion region not supplied, extract from dataframe
     inversion_region = kwargs.get(
-        "inversion_region", vd.get_region((input_grav.x, input_grav.y))
+        "inversion_region", vd.get_region((input_grav.easting, input_grav.northing))
     )
 
     # get kwargs associated with the various methods
@@ -126,14 +260,6 @@ def regional_seperation(
     df = kwargs.get("constraints", None)
     if df is not None:
         constraints = df.copy()
-
-    fill_method = kwargs.get("fill_method", "pygmt")
-
-    # if fill_method == "rioxarray" and crs is None:
-    if crs is None:
-        # raise ValueError(
-        print("'crs' not provided for rioxarray fill_method, defaulting to EPSG:3031\n")
-        crs = 3031
 
     anomalies = input_grav.copy()
 
@@ -148,178 +274,106 @@ def regional_seperation(
         input_grav = anomalies,
         input_forward_column = input_forward_column,
         input_grav_column = input_grav_column,
-        grav_spacing=grav_spacing,
-        plot=False,
     )
 
     # grid misfit
     misfit_grid = pygmt.xyz2grd(
-        data=anomalies[["x", "y", "misfit"]],
-        region=inversion_region,
-        spacing=grav_spacing,
-        registration=registration,
+        data = anomalies[["easting", "northing", "misfit"]],
+        region = inversion_region,
+        spacing = grav_spacing,
+        registration = registration,
     )
 
-    # anomalies["grav_corrected"] = anomalies[input_grav_column]
-    # anomalies["forward"] = anomalies[input_forward_column]
-
-    # # get obs-forward misfit
-    # anomalies["misfit"] = anomalies.grav_corrected - anomalies.forward
-
-    # # grid the misfits, used in trend, filter, and constraints, not in
-    # Eq. Sources
-    # misfit = pygmt.xyz2grd(
-    #     data=anomalies[["x", "y", "misfit"]],
-    #     region=inversion_region,
-    #     spacing=grav_spacing,
-    #     registration=registration,
-    # )
-
-    # Trend method
     if regional_method == "trend":
-        # fill misfit nans with 1 of 2 methods
-        if fill_method == "pygmt":
-            # option 1) with pygmt.grdfill(), needs grav_spacing and
-            # inversion_region
-            misfit_filled = pygmt.grdfill(misfit_grid, mode="n")
-        elif fill_method == "rioxarray":
-            # option 1) with rio.interpolate(), needs crs set.
-            # misfit = misfit.rio.write_crs(crs)
-            misfit_filled = (
-                misfit.rio.write_nodata(np.nan).rio.interpolate_na().rename("z")
-            )
-
-        df = vd.grid_to_table(misfit_filled).astype("float64")
-
-        trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.z)
-        anomalies["reg"] = trend.predict((anomalies.x, anomalies.y))
-
-    # Filter method
-    elif regional_method == "filter":
-        # filter the observed-forward misfit with the provided filter in meters
-        regional_misfit = pygmt.grdfilter(
+        anomalies = regional_trend(
+            trend,
             misfit_grid,
-            filter=filter,
-            distance="0",
-            registration=registration,
+            anomalies,
+            fill_method = kwargs.get("fill_method", "rioxarray"),
+            crs = crs,
         )
-        # sample the results and merge into the anomalies dataframe
-        tmp_regrid = pygmt.grdtrack(
-            points=anomalies[["x", "y"]],
-            grid=regional_misfit,
-            newcolname="reg",
-            verbose="q",
+    elif regional_method == "filter":
+        anomalies = regional_filter(
+            filter,
+            misfit_grid,
+            anomalies,
+            registration = registration,
         )
-        anomalies = anomalies.merge(tmp_regrid, on=["x", "y"], how="left")
-
-    # Constraints method
     elif regional_method == "constraints":
-        # sample observed-forward misfit at constraint points
-        constraints = profile.sample_grids(
-            df=constraints,
-            grid=misfit_grid,
-            name="misfit",
+        anomalies = regional_constraints(
+            constraints,
+            tension_factor,
+            misfit_grid,
+            anomalies,
+            inversion_region,
+            grav_spacing,
+            registration = registration,
+            block_reduce = False,
         )
-
-        # get median misfit of constraint points in each 1km cell
-        blocked = pygmt.blockmedian(
-            data=constraints[["x", "y", "misfit"]],
-            spacing=grav_spacing,
-            region=inversion_region,
-            registration=registration,
-        )
-
-        # grid the entire region misfit based just on the misfit at the constraints
-        regional_misfit = pygmt.surface(
-            data=blocked,
-            region=inversion_region,
-            spacing=grav_spacing,
-            registration=registration,
-            T=tension_factor,
-            verbose="q",
-        )
-
-        # sample the resulting grid and add to anomalies dataframe
-        anomalies = profile.sample_grids(
-            df=anomalies,
-            grid=regional_misfit,
-            name="reg",
-        )
-
-    # Equivalent sources method
     elif regional_method == "eq_sources":
-        # create set of deep sources
-        equivalent_sources = hm.EquivalentSources(
-            depth=eq_sources,
-            damping=kwargs.get(
-                "eq_damping", None
-            ),  # float: smoothness to impose on estimated coefficients
-            block_size=kwargs.get(
-                "block_size", None
-            ),  # block reduce the data to speed up
-            depth_type=kwargs.get(
-                "depth_type", "relative"
-            ),  # constant depths, not relative to observation heights
+        anomalies = regional_eq_sources(
+            eq_sources,
+            misfit_grid,
+            anomalies,
+            eq_damping = kwargs.get("eq_damping", None),
+            block_size = kwargs.get("block_size", None),
+            depth_type = kwargs.get("depth_type", "relative"),
         )
-        # fit the source coefficients to the data
-        coordinates = (anomalies.x, anomalies.y, anomalies.z)
-        equivalent_sources.fit(coordinates, anomalies.misfit)
-        # use sources to predict the regional field at the observation points
-        anomalies["reg"] = equivalent_sources.predict(coordinates)
-
+    else:
+        raise ValueError("invalid string for regional_method")
+            
     # calculate the residual field
     anomalies["res"] = anomalies.misfit - anomalies.reg
-
-    # rmse = RMSE(anomalies.res)
-    # print(f"Misfit RMSE: {round(rmse, 2)} mGal")
 
     return anomalies
 
 
-@numba.njit(parallel=True)
+
+@numba.jit(cache=True, nopython=True)
 def grav_column_der(x0, y0, z0, xc, yc, z1, z2, res, rho):
     """
-    Function to calculate the vertical derivate of the gravitational acceleration cause
+    Function to calculate the vertical derivate of the gravitational acceleration at an observation point caused
     by a right, rectangular prism.
-    Approximate with Hammer's annulus approximation.
+    Approximated with Hammer's annulus approximation.
     x0, y0, z0: floats, coordinates of gravity observation points
     xc, yc, z1, z2: floats, coordinates of prism's y, x, top, and bottom, respectively.
     res: float, resolution of prism layer in meters,
     rho: float, density of prisms, in kg/m^3
     """
-    r = np.sqrt((x0 - xc) ** 2 + (y0 - yc) ** 2)
+    r = np.sqrt(np.square(x0 - xc) + np.square(y0 - yc))
     r1 = r - 0.5 * res
     r2 = r + 0.5 * res
     r1[r1 < 0] = 0  # will fail if prism is under obs point
     r2[r1 < 0] = 0.5 * res
-    f = res**2 / (np.pi * (r2**2 - r1**2))  # eq 2.19 in McCubbine 2016 Thesis
+    f = np.square(res) / (np.pi * (np.square(r2) - np.square(r1)))  # eq 2.19 in McCubbine 2016 Thesis
     anomaly_grad = (
-        0.0419
-        * f
-        * rho
-        * (z1 - z0)
-        * (
-            1 / np.sqrt(r2**2 + (z1 - z0) ** 2)
-            - 1 / np.sqrt(r1**2 + (z1 - z0) ** 2)
-        )
-    )
+        0.0000419 * f * rho * (z1 - z0) * (
+            1 / np.sqrt(np.square(r2) + np.square(z1 - z0)) - 
+            1 / np.sqrt(np.square(r1) + np.square(z1 - z0))
+        ))
     return anomaly_grad
 
 
 @numba.njit(parallel=True)
-def _jacobian_annular_numba(
-    grav_x,
-    grav_y,
-    grav_z,
+def jacobian_annular(
+    grav_easting,
+    grav_northing,
+    grav_upward,
     prism_easting,
     prism_northing,
     prism_top,
     prism_bottom,
     prism_density,
     prism_spacing: float,
+    jac: np.ndarray,
 ):
     """
-    Takes arrays from `jacobian_annular`, feeds them into `grav_column_der`, and returns
+    Function to calculate the Jacobian matrix using the annular cylinder approximation
+    The resulting Jacobian is a matrix (numpy array) with a row per gravity observation
+    and a column per prism. This approximates the prisms as an annulus, and calculates
+    it's vertical gravity derivative.
+    
+    Takes arrays from `jacobian`, feeds them into `grav_column_der`, and returns
     the jacobian.
 
     Returns
@@ -328,231 +382,170 @@ def _jacobian_annular_numba(
         returns a np.ndarray of shape (number of gravity points, number of prisms)
     """
 
-    jac = np.empty(
-        (len(grav_x), len(prism_easting)),
-        dtype=np.float64,
-    )
-
-    for i in numba.prange(len(grav_x)):
+    for i in numba.prange(len(grav_easting)):
         jac[i, :] = grav_column_der(
-            grav_y[i],
-            grav_x[i],
-            grav_z[i],
+            grav_northing[i],
+            grav_easting[i],
+            grav_upward[i],
             prism_northing,
             prism_easting,
             prism_top,
             prism_bottom,
             prism_spacing,
-            prism_density / 1000,  # density
+            prism_density,
         )
-    return jac
-
-
-def jacobian_annular(
-    coordinates: pd.DataFrame,
-    model: xr.Dataset,
-    prism_spacing: float,
-):
-    """
-    Function to calculate the Jacobian matrix using the annular cylinder approximation
-    The resulting Jacobian is a matrix (numpy array) with a row per gravity observation
-    and a column per prism. This approximates the prisms as an annulus, and calculates
-    it's vertical gravity derivative.
-
-    Parameters
-    ----------
-    coordinates : pd.DataFrame
-        dataframe containing gravity data coordinates
-    model : xr.Dataset
-        harmonica.prism_layer, with coordinates:
-        easting, northing, top, and bottom, and variables: 'Density'.
-    prism_spacing : float
-        spacing of prisms
-
-    Returns
-    -------
-    np.ndarray
-        returns a np.ndarray of shape (number of gravity points, number of prisms)
-    """
-
-    # convert prism model to dataframe
-    prisms = model.to_dataframe().reset_index().dropna()
-
-    # convert dataframes to numpy arrays
-    coordinates_array = coordinates.to_numpy()
-    prisms_array = prisms.to_numpy()
-
-    # get various arrays based on gravity column names
-    grav_x = coordinates_array[:, coordinates.columns.get_loc("x")]
-    grav_y = coordinates_array[:, coordinates.columns.get_loc("y")]
-    grav_z = coordinates_array[:, coordinates.columns.get_loc("z")]
-
-    assert len(grav_x) == len(grav_y) == len(grav_z)
-
-    # get various arrays based on prisms column names
-    prism_easting = prisms_array[:, prisms.columns.get_loc("easting")]
-    prism_northing = prisms_array[:, prisms.columns.get_loc("northing")]
-    prism_top = prisms_array[:, prisms.columns.get_loc("top")]
-    prism_bottom = prisms_array[:, prisms.columns.get_loc("bottom")]
-    prism_density = prisms_array[:, prisms.columns.get_loc("density")]
-
-    # feed above arrays into the jacobian function
-    jac = _jacobian_annular_numba(
-        grav_x,
-        grav_y,
-        grav_z,
-        prism_easting,
-        prism_northing,
-        prism_top,
-        prism_bottom,
-        prism_density,
-        prism_spacing,
-    )
-
-    return jac
-
-
-def _jacobian_prism_numba(
-    grav_x,
-    grav_y,
-    grav_z,
-    model,
-    delta: float,
-    field: str,
-):
-    """
-    Takes arrays from `jacobian_prisms` and calculates the jacobian.
-
-    Returns
-    -------
-    np.ndarray
-        returns a np.ndarray of shape (number of gravity points, number of prisms)
-    """
-
-    jac = np.empty(
-        (
-            len(grav_x),
-            # np.count_nonzero(~np.isnan(model.top.values))),
-            model.top.size,
-        ),
-        dtype=np.float64,
-    )
-
-    # prisms_n_density = []
-    # for x in range(len(model.easting.values)):
-    #     for y in range(len(model.northing.values)):
-    #         prism_info = (
-    #             model.prism_layer.get_prism((x, y)),
-    #             model.density.values[x, y]
+    # for i in numba.prange(len(grav_easting)):
+    #     for j in range(len(prism_northing)):
+    #         jac[i, j] = grav_column_der(
+    #             grav_northing[i],
+    #             grav_easting[i],
+    #             grav_upward[i],
+    #             prism_northing[j],
+    #             prism_easting[j],
+    #             prism_top[j],
+    #             prism_bottom[j],
+    #             prism_spacing[j],
+    #             prism_density[j],
     #         )
-    #         prisms_n_density.append(prism_info)
-    # if any([np.isnan(x).any() for x in prism_info]) is False:
-    # prisms_n_density.append(prism_info)
-
-    # Build a generator for prisms (doesn't allocate memory, only returns at request)
-    # about half of the cmp. time is here.
-    prisms_n_density = (
-        (model.prism_layer.get_prism((i, j)), model.density.values[i, j])
-        for i in range(model.northing.size)
-        for j in range(model.easting.size)
-    )
-
-    # for zref method
-    # Build a small prism ontop of existing prism (thickness equal to delta)
-    for col, (prism, density) in enumerate(prisms_n_density):
-        # for positive densities, add prisms on top
-        if density >= 0:
-            bottom = prism[5]
-            top = prism[5] + delta
-        # for negative densities, add prism below
-        elif density < 0:
-            top = prism[4]
-            bottom = prism[4] - delta
-        delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
-
-        jac[:, col] = (
-            hm.prism_gravity(
-                coordinates=(grav_x, grav_y, grav_z),
-                prisms=delta_prism,
-                density=density,
-                field=field,
-                parallel=True,
-            )
-            / delta
-        )
-
-    # for absolute density discretization method
-#     # Build a small prism ontop of existing prism (thickness equal to delta)
-#     for col, (prism, density) in enumerate(prisms_n_density):
-#         bottom = prism[5]  # - delta / 2
-#         top = prism[5] + delta  # / 2
-#         delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
-
-#         jac[:, col] = (
-#             hm.prism_gravity(
-#                 coordinates=(grav_x, grav_y, grav_z),
-#                 prisms=delta_prism,
-#                 density=density,
-#                 field=field,
-#                 parallel=True,
-#             )
-#             / delta
-#         )
-
     return jac
 
 
+@numba.jit(forceobj=True, parallel=True)
 def jacobian_prism(
-    coordinates: pd.DataFrame,
-    model: xr.Dataset,
+    prisms_properties,
+    grav_easting,
+    grav_northing,
+    grav_upward,
     delta: float,
-    field: str,
+    jac: np.ndarray,
 ):
     """
     Function to calculate the Jacobian matrix with the vertical gravity derivative
     as a numerical approximation with small prisms
 
-    Parameters
-    ----------
-    coordinates : pd.DataFrame
-        dataframe containing gravity observation coordinates
-    model : xr.Dataset
-        harmonica.prism_layer, with coordinates:
-        easting, northing, top, and bottom, and variables: 'Density'.
-    delta : float
-        size of small prism to add, in meters
-    field : str
-        field to return, 'g_z' for gravitational acceleration.
-
+    Takes arrays from `jacobian` and calculates the jacobian.
+    
     Returns
     -------
     np.ndarray
         returns a np.ndarray of shape (number of gravity points, number of prisms)
+        
     """
+    # Build a small prism ontop of existing prism (thickness equal to delta)
+    for i in numba.prange(len(prisms_properties)):
+            prism = prisms_properties[i]
+            density = prism[6]
+            bottom = prism[5] 
+            top = prism[5] + delta  
+            delta_prism = (prism[0], prism[1], prism[2], prism[3], bottom, top)
 
-    # convert dataframes to numpy arrays
-    coordinates_array = coordinates.to_numpy()
-
-    # get various arrays based on gravity column names
-    grav_x = coordinates_array[:, coordinates.columns.get_loc("x")]
-    grav_y = coordinates_array[:, coordinates.columns.get_loc("y")]
-    grav_z = coordinates_array[:, coordinates.columns.get_loc("z")]
-
-    assert len(grav_x) == len(grav_y) == len(grav_z)
-
-    # feed above arrays into the jacobian function
-    jac = _jacobian_prism_numba(
-        grav_x,
-        grav_y,
-        grav_z,
-        model,
-        delta,
-        field,
-    )
+            jac[:, i] = hm.prism_gravity(
+                    coordinates=(grav_easting, grav_northing, grav_upward),
+                    prisms=delta_prism,
+                    density=density,
+                    field="g_z",
+                    parallel=True,
+                ) / delta
 
     return jac
 
 
+def jacobian(
+    deriv_type: str,
+    coordinates: pd.DataFrame,
+    empty_jac: np.ndarray = None,
+    prisms_df = None,
+    prisms_layer = None,
+    prism_spacing = None,
+    prism_size = None,
+):
+    """
+    dispatcher for creating the jacobian matrix with 2 method options
+    """
+    # convert dataframes to numpy arrays
+    coordinates_array = coordinates.to_numpy()
+
+    # get various arrays based on gravity column names
+    grav_easting = coordinates_array[:, coordinates.columns.get_loc("easting")]
+    grav_northing = coordinates_array[:, coordinates.columns.get_loc("northing")]
+    grav_upward = coordinates_array[:, coordinates.columns.get_loc("upward")]
+
+    assert len(grav_easting) == len(grav_northing) == len(grav_upward)
+    
+    if empty_jac is None:
+        empty_jac = np.empty(
+            (len(grav_easting), len(prisms_df.easting)),
+            dtype=np.float64,
+        )
+        print("no empty jacobian supplied")
+    
+    jac = empty_jac.copy()
+        
+    if deriv_type == "annulus":
+        # convert dataframes to numpy arrays
+        prisms_array = prisms_df.to_numpy()
+
+        # get various arrays based on prisms column names
+        prism_easting = prisms_array[:, prisms_df.columns.get_loc("easting")]
+        prism_northing = prisms_array[:, prisms_df.columns.get_loc("northing")]
+        prism_top = prisms_array[:, prisms_df.columns.get_loc("top")]
+        prism_bottom = prisms_array[:, prisms_df.columns.get_loc("bottom")]
+        prism_density = prisms_array[:, prisms_df.columns.get_loc("density")]
+        
+        jac = jacobian_annular(
+            grav_easting,
+            grav_northing,
+            grav_upward,
+            prism_easting,
+            prism_northing,
+            prism_top,
+            prism_bottom,
+            prism_density,
+            prism_spacing,
+            jac,
+        )
+    elif deriv_type == "prisms":
+        # get prisms info in following format, 3 methods:
+        # ((west, east, south, north, bottom, top), density)
+
+        # with itertools.combinations
+        prisms_properties = []
+        for y, x, in itertools.product(range(prisms_layer.northing.size), range(prisms_layer.easting.size)):
+            prisms_properties.append(
+                    list(prisms_layer.prism_layer.get_prism((y, x)))+[prisms_layer.density.values[y, x]])
+        prisms_properties = np.array(prisms_properties)
+        # np.asarray(prisms_properties) 
+
+        # with nested for-loops
+        # prisms_properties = []
+        # for y in range(prisms_layer.northing.size):
+        #     for x in range(prisms_layer.easting.size):
+        #         prisms_properties.append(
+        #             list(prisms_layer.prism_layer.get_prism((y, x)))+[prisms_layer.density.values[y, x]])
+        # np.asarray(prisms_properties) 
+
+        # with a generator
+        # slower, but doesn't allocate memory
+        # prisms_properties = [
+        #     list(prisms_layer.prism_layer.get_prism((y, x))) + [prisms_layer.density.values[y, x]]
+        #     for y in range(prisms_layer.northing.size)
+        #     for x in range(prisms_layer.easting.size)
+        # ]
+        
+        jac = jacobian_prism(
+            prisms_properties,
+            grav_easting,
+            grav_northing,
+            grav_upward,
+            prism_size,
+            jac,
+        )
+
+    else:
+        raise ValueError("invalid string for deriv_type")
+
+    return jac
+        
 def solver(
     jacobian: np.array,
     residuals: np.array,
@@ -642,6 +635,9 @@ def solver(
         # rhs = gradient.T.dot(residuals)-fdmatrix.T.dot(fdmatrix).dot(tops)
         # lhs = gradient.T.dot(gradient)+fdmatrix.T.dot(fdmatrix)
         # step = np.linalg.solve(lhs,rhs)
+    else:
+        raise ValueError("invalid string for solver_type")
+        
     return step
 
 
@@ -656,100 +652,263 @@ def finite_difference_matrix(nparams):
     return fdmatrix
 
 
-
+def sample_bounding_surfaces(
+    prisms_df: pd.DataFrame, 
+    upper_confining_layer: xr.DataArray = None, 
+    lower_confining_layer: xr.DataArray = None, 
+):
     """
-    Invert geometry of upper surface of prism layer based on gravity anomalies.
-
-    Parameters
-    ----------
-    active_layer : str
-        layer to invert.
-    layers_dict : dict
-        Nested dict; where each layer is a dict with keys:
-            'spacing': int, float; grid spacing
-            'fname': str; grid file name
-            'rho': int, float; constant density value for layer
-            'grid': xarray.DataArray;
-            'df': pandas.DataFrame; 2d representation of grid
-            'len': int, number of prisms in the layer
-            'prisms': xarray.DataSet, harmonica.prism_layer
-    input_grav : pd.DataFrame
-        input gravity data, if contains anomaly columns will use them, if not, will
-        calculate them
-    buffer_region : list
-        region including buffer zone, by default reads region from first grid layer
-    regional_method : {'trend', 'filter', 'constraints', 'eq_sources'}
-        choose a method to determine the regional gravity misfit.
-    grav_spacing : float
-        _description_
-    l2_norm_tolerance : float, optional
-        end inversion if L2-norm is below this value, by default 1
-    delta_l2_norm_tolerance : float, optional
-        end inversion if L2-norm-updated/L2-norm-previous is above this value, by
-        default 1.001
-    max_iterations : int, optional
-        terminate the inversion after this number of iterations, by default 3
-    deriv_type : {'prisms', 'annulus'}, optional
-        choose method for calculating vertical derivative of gravity, by default
-        "prisms"
-    solver_type : {'least squares', 'gauss newton', 'steepest descent'}, optional
-        _choose method for solving for geometry correction, by default "least squares"
-    max_layer_change_per_iter : float, optional
-        maximum amount in meters each prism's surface can change by during each
-        iteration, by default 100
-    save_results : bool, optional
-        choose whether to save results as a csv, by default False
-
-    Other Parameters
-    ----------------
-    apply_constraints : bool,
-        False
-    constraints_grid : xr.DataArray,
-        grid with values from 0-1 by which to multiple each iterations correction
-        values by, defaults to None
-    corrections : list,
-        list of layers to include in partial Bouguer correction of Observed
-        gravity data.
-    input_grav_column : str,
-        "Gobs"
-    solver_damping: float,
-        damping parameter for least squares solvers
-    solver_weights: np.array,
-        array of weights to assign to data, typically 1/(uncertainty**2)
-    filter: str,
-        input string for pygmt.grdfilter() for calculating regional misfit if
-        regional_method = 'filter', ex. "g200e3" gives a 200km Gaussian filter.
-    trend: int,
-        trend order used from calculating regional misfit if
-        regional_method = 'trend'.
-    fill_method: {'pygmt', 'rioxarray'},
-        Choose method to fill nans, by default is 'pygmt'
-    constraints: pd.DataFrame,
-        Locations of constraint points to interpolate between for calculating
-        regional misfit if regional_method = 'constraints'.
-    tension_factor: float,
-    eq_damping: float
-        smoothness to impose on estimated coefficients
-    block_size: float
-        block reduce the data to speed up
-    depth_type: str
-        "relative" or "constant" for depth for eq_sources
-    fname_topo: str
-        set csv filename, by default is 'topo_results'
-    fname_gravity: str
-        set csv filename, by default is 'gravity_results'
-
-    Returns
-    -------
-    list
-        iter_corrections: pd.DataFrame with corrections and updated geometry of the
-            inversion layer for each iteration.
-        gravity: pd.DataFrame with new columns of inversion results
-        layers_update: dict with updated layer geometries
-
+    sample upper and/or lower confining layers into prisms dataframe 
     """
+    df = prisms_df.copy()
+    
+    if upper_confining_layer is not None:
+        df = profile.sample_grids(
+            df=df,
+            grid=upper_confining_layer,
+            name="upper_bounds",
+            coord_names=['easting', 'northing'],
+        )
+    if lower_confining_layer is not None:
+        df = profile.sample_grids(
+            df=df,
+            grid=lower_confining_layer,
+            name="lower_bounds",
+            coord_names=['easting', 'northing'],
+        )
+    return df
 
 
+def enforce_confining_surface(
+    prisms_df: pd.DataFrame, 
+    Surface_correction: np.array,
+    upper_confining_layer: xr.DataArray = None, 
+    lower_confining_layer: xr.DataArray = None, 
+):
+    """
+    ensue the surface correction doesn't move the prisms above or below optional confining surfaces
+    """
+    correction = Surface_correction.copy()
+    
+    if upper_confining_layer is not None:
+        # get max change in positive direction for each prism
+        prisms_df["max_allowed_change_above"] = prisms_df.upper_bounds - prisms_df.top
+        for i, j in enumerate(prisms_df.max_allowed_change_above):
+            if correction[i] > j:
+                correction[i] = j
+    if lower_confining_layer is not None:
+        # get max change in negative direction for each prism
+        prisms_df["max_allowed_change_below"] = prisms_df.lower_bounds - prisms_df.bottom
+        for i, j in enumerate(prisms_df.max_allowed_change_below):
+            if correction[i] < j:
+                correction[i] = j
+                
+    return correction
+   
+
+def constrain_surface_correction(
+    prisms_df: pd.DataFrame, 
+    Surface_correction: np.array,
+    upper_confining_layer: xr.DataArray = None, 
+    lower_confining_layer: xr.DataArray = None, 
+    max_layer_change_per_iter: float = None,
+):
+    """
+    optionally constrain the surface correction and add to the prisms dataframe.
+    """
+    
+    correction = Surface_correction.copy()
+    prisms = prisms_df.copy()
+    
+    # set maximum allowed change of each prism per iteration
+    if max_layer_change_per_iter is not None:
+        for i, j in enumerate(correction):
+            if j > max_layer_change_per_iter:
+                j = max_layer_change_per_iter
+            elif j < -max_layer_change_per_iter:
+                j = -max_layer_change_per_iter
+        print(
+            "Layer correction (after clipped) median:",
+            f"{int(np.median(correction))}m,",
+            f"RMSE:{int(RMSE(correction))} m",
+        )
+
+    # ensure prisms don't extend above or below confining surfaces.
+    correction = enforce_confining_surface(
+        prisms, 
+        correction,
+        upper_confining_layer, 
+        lower_confining_layer, 
+    )
+    
+    return correction
+   
+
+def apply_surface_correction(
+    prisms_df: pd.DataFrame,
+    prisms_ds: xr.Dataset,
+    iteration_number: int,
+):
+    """
+    update the prisms dataframe and dataset with the surface correction
+    """
+    
+    df = prisms_df.copy()
+    ds = prisms_ds.copy()
+    
+    density_contrast = ds.density.values.max()
+    zref = ds.top.values.min()
+    
+    # for negative densities, negate the correction
+    df.loc[df.density < 0, f"iter_{iteration_number}_correction"] *= -1
+
+    # create surface from top and bottom
+    surface_grid = xr.where(
+        ds.density > 0, ds.top, ds.bottom)
+
+    # grid the corrections
+    correction_grid = (
+        df
+        .rename(columns={f"iter_{iteration_number}_correction":'z'})
+        .set_index(["northing", "easting"])
+        .to_xarray().z
+        )
+
+    # apply correction to surface
+    surface_grid += correction_grid
+
+    # update the prism layer
+    ds.prism_layer.update_top_bottom(
+        surface=surface_grid,
+        reference=zref
+    )
+
+    ds['density'] = xr.where(ds.top > zref, density_contrast, -density_contrast)
+
+    ds['surface'] = surface_grid
+
+    # turn back into dataframe
+    prisms_iter = (
+        ds
+        .to_dataframe()
+        .reset_index()
+        .dropna()
+        .astype(float)
+    )
+    
+    # add new cols to dict
+    dict_of_cols={
+        f"iter_{iteration_number}_top": prisms_iter.top,
+        f"iter_{iteration_number}_bottom": prisms_iter.bottom,
+        f"iter_{iteration_number}_density": prisms_iter.density,
+        f"iter_{iteration_number}_layer": prisms_iter.surface,
+    }
+
+    df = pd.concat([df, pd.DataFrame(dict_of_cols)], axis=1)
+
+    return df, ds
+
+
+def update_gravity_and_misfit(
+    gravity_df: pd.DataFrame,
+    prisms_ds: xr.Dataset,
+    input_grav_column: str,
+    iteration_number: int,
+):
+    gravity = gravity_df.copy()
+    
+    # update the forward gravity
+    gravity[f"iter_{iteration_number}_forward_grav"] = prisms_ds.prism_layer.gravity(
+        coordinates=(gravity.easting, gravity.northing, gravity.upward), field="g_z"
+    )
+    # center on 0
+    gravity[f"iter_{iteration_number}_forward_grav"] -= gravity[f"iter_{iteration_number}_forward_grav"].median()
+
+    # each iteration updates the topography of the layer to minizime the residual
+    # portion of the misfit. We then want to recalculate the forward gravity of the
+    # new layer, use the same original regional misfit, and re-calculate the residual
+    # Gmisfit  = Gobs_corr - Gforward
+    # Gres = Gmisfit - Greg
+    # Gres = Gobs_corr - Gforward - Greg
+    # update the residual misfit with the new forward gravity and the same regional
+    gravity[f"iter_{iteration_number}_final_misfit"] = (
+        gravity[input_grav_column] -
+        gravity[f"iter_{iteration_number}_forward_grav"] -
+        gravity.reg
+    )
+
+    # center on 0
+    gravity[f"iter_{iteration_number}_final_misfit"] -= gravity[f"iter_{iteration_number}_final_misfit"].median()
+        
+    return gravity
+
+
+def update_l2_norms(
+    RMSE: float,
+    l2_norm: float,
+):
+    """ update the l2 norm and delta l2 norm of the misfit"""
+    # square-root of RMSE is the l-2 norm
+    updated_l2_norm = np.sqrt(RMSE)
+
+    updated_delta_l2_norm = l2_norm / updated_l2_norm
+
+    # we want the misfit (L2-norm) to be steadily decreasing with each iteration.
+    # If it increases, something is wrong, stop inversion
+    # If it doesn't decrease enough, inversion has finished and can be stopped
+    # delta L2 norm starts at +inf, and should decreases with each iteration.
+    # if it gets close to 1, the iterations aren't making progress and can be stopped.
+    # a value of 1.001 means the L2 norm has only decrease by 0.1% between iterations.
+    # and RMSE has only decreased by 0.05%.
+
+    # update the l2_norm
+    l2_norm = updated_l2_norm
+
+    # updated the delta l2_norm
+    delta_l2_norm = updated_delta_l2_norm
+
+    return l2_norm, delta_l2_norm, 
+
+
+def end_inversion(
+    iteration_number: int,
+    max_iterations: int,
+    l2_norm: float,
+    starting_l2_norm: float,
+    l2_norm_tolerance: float,
+    delta_l2_norm: float,
+    delta_l2_norm_tolerance: float,
+):
+    if l2_norm > starting_l2_norm*1.2:
+        print(
+            f"\nInversion terminated after {iteration_number} iterations because L2 norm was",
+            "more than 20% greater than starting L2 norm",
+        )
+        return True 
+
+    if delta_l2_norm <= delta_l2_norm_tolerance: # and ITER !=1:
+        print(
+            f"\nInversion terminated after {iteration_number} iterations because there was",
+            "no significant variation in the L2-norm",
+        )
+        return True 
+
+    if l2_norm < l2_norm_tolerance:
+        print(
+            f"\nInversion terminated after {iteration_number} iterations with L2-norm =",
+            f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}",
+        )
+        return True 
+
+    if iteration_number >= max_iterations:
+        print(
+            f"\nInversion terminated after {iteration_number} iterations with L2-norm =",
+            f"{round(l2_norm, 2)} because maximum number of iterations ",
+            f"({max_iterations}) reached",
+        )
+        return True 
+        
+        
 def geo_inversion(
     input_grav: pd.DataFrame,
     input_grav_column: str,
@@ -766,7 +925,9 @@ def geo_inversion(
     upper_confining_layer: xr.DataArray = None,
     lower_confining_layer: xr.DataArray = None,
     ):
-
+    """
+    perform a geometry inversion, where a topographic surface, represented by a layer of vertical, right-rectangular prisms, has it's topography updated based on a gravity anomaly.  
+    """
     time_start = time.perf_counter()
 
     gravity = copy.deepcopy(input_grav)
@@ -778,6 +939,11 @@ def geo_inversion(
     density_contrast = prisms.density.values.max()
     zref = prisms.top.values.min()
 
+    # add starting surface to dataset
+    surface_grid = xr.where(
+            prisms.density > 0, prisms.top, prisms.bottom)
+    prisms['surface'] = surface_grid
+    
     # turn dataset into dataframe
     prisms_df = (
             prisms
@@ -786,23 +952,27 @@ def geo_inversion(
             .dropna()
             .astype(float)
         )
-
+        
+    #get spacing of prisms
+    if deriv_type == "annulus":
+        prism_spacing = abs(
+            prisms_df.northing.unique()[1] - prisms_df.northing.unique()[0])
+    else:
+        prism_spacing = None
+        
+    # create empty jacobian matrix
+    empty_jac = np.empty(
+            (len(gravity[input_grav_column]), prisms.top.size),
+            dtype=np.float64,
+        )
+    
     # if there is a confining surface (above or below), which the inverted layer
     # shouldn't intersect, then sample those layers into the df
-    if upper_confining_layer is not None:
-        prisms_df = profile.sample_grids(
-                df=prisms_df,
-                grid=upper_confining_layer,
-                name="upper_bounds",
-                coord_names=['easting', 'northing'],
-            )
-    if lower_confining_layer is not None:
-        prisms_df = profile.sample_grids(
-                df=prisms_df,
-                grid=lower_confining_layer,
-                name="lower_bounds",
-                coord_names=['easting', 'northing'],
-            )
+    prisms_df = sample_bounding_surfaces(
+        prisms_df, 
+        upper_confining_layer, 
+        lower_confining_layer, 
+    )
 
     # set starting delta L2 norm to positive infinity
     delta_l2_norm = np.Inf
@@ -810,7 +980,6 @@ def geo_inversion(
     # iteration times
     iter_times=[]
 
-    # start the inversion loop
     for ITER, _ in enumerate(range(max_iterations), start=1):
         print(f"\n{'':#<60}##################################\niteration {ITER}")
         # start iteration timer
@@ -833,25 +1002,16 @@ def geo_inversion(
         if ITER == 1:
             starting_l2_norm = l2_norm
 
-        # calculate jacobian sensitivity matrix (2 methods)
-        if deriv_type == "annulus":  # major issue with grav_column_der, way too slow
-            #get spacing of prisms
-            prism_spacing = abs(
-                prisms_df.northing.unique()[1] - prisms_df.northing.unique()[0])
-            jac = jacobian_annular(
-                gravity,
-                prisms,
-                prism_spacing,
-            )
-        elif deriv_type == "prisms":
-            jac = jacobian_prism(
-                coordinates=gravity,
-                model=prisms,
-                delta=jacobian_prism_size,
-                field="g_z",
-            )
-        else:
-            print("not valid derivative type")
+        # calculate jacobian sensitivity matrix 
+        jac = jacobian(
+            deriv_type,
+            gravity,
+            empty_jac,
+            prisms_df = prisms_df,
+            prisms_layer = prisms,
+            prism_spacing = prism_spacing,
+            prism_size = jacobian_prism_size,
+        )
 
         # calculate correction for each prism
         Surface_correction = solver(
@@ -868,177 +1028,69 @@ def geo_inversion(
             f"m, RMSE:{int(RMSE(Surface_correction))} m",
         )
 
-        # set maximum allowed change of each prism per iteration
-        if max_layer_change_per_iter is not None:
-            for i, j in enumerate(Surface_correction):
-                if j > max_layer_change_per_iter:
-                    j = max_layer_change_per_iter
-                elif j < -max_layer_change_per_iter:
-                    j = -max_layer_change_per_iter
-            print(
-                "Layer correction (after clipped) median:",
-                f"{int(np.median(Surface_correction))}m,",
-                f"RMSE:{int(RMSE(Surface_correction))} m",
-            )
-
-        # ensure prisms don't extend above or below confining surfaces.
-        # i.e., don't let bed move above ice base/water surface
-        if upper_confining_layer is not None:
-            # get max change in positive direction for each prism
-            prisms_df["max_allowed_change_above"] = prisms_df.upper_bounds - prisms_df.top
-            for i, j in enumerate(prisms_df.max_allowed_change_above):
-                if Surface_correction[i] > j:
-                    Surface_correction[i] = j
-        if lower_confining_layer is not None:
-            # get max change in negative direction for each prism
-            prisms_df["max_allowed_change_below"] = prisms_df.lower_bounds - prisms_df.bottom
-            for i, j in enumerate(prisms_df.max_allowed_change_below):
-                if Surface_correction[i] < j:
-                    Surface_correction[i] = j
-
+        # constrain the surface correction values
+        Surface_correction = constrain_surface_correction(
+            prisms_df,
+            Surface_correction,
+            upper_confining_layer, 
+            lower_confining_layer, 
+            max_layer_change_per_iter,
+        )
+    
         # add corrections to prisms_df
         prisms_df = pd.concat([prisms_df, pd.DataFrame({f"iter_{ITER}_correction": Surface_correction})], axis=1)
-
+        
         # constrain corrections to only within gravity region
         # prisms_df['inside'] = vd.inside(
         #     (prisms_df.easting, prisms_df.northing), region=inversion_region)
         # prisms_df.loc[prisms_df.inside == False, f"iter_{ITER}_correction"] = 0
-
-        # for negative densities, negate the correction
-        prisms_df.loc[prisms_df.density < 0, f"iter_{ITER}_correction"] *= -1
-
-        # create surface from top and bottom
-        surface_grid = xr.where(
-            prisms.density > 0, prisms.top, prisms.bottom)
-
-        # grid the corrections
-        correction_grid = (
-            prisms_df
-            .rename(columns={f"iter_{ITER}_correction":'z'})
-            .set_index(["northing", "easting"])
-            .to_xarray().z
-            )
-
-        # apply correction to surface
-        surface_grid += correction_grid
-
-        # update the prism layer
-        prisms.prism_layer.update_top_bottom(
-            surface=surface_grid,
-            reference=zref
+        
+        # apply the surface correction to the prisms dataframe and dataset
+        prisms_df, prisms = apply_surface_correction(
+            prisms_df,
+            prisms,
+            ITER,
         )
 
-        prisms['density'] = xr.where(prisms.top > zref, density_contrast, -density_contrast)
-
-        prisms['surface'] = surface_grid
-
-        # turn back into dataframe
-        prisms_iter = (
-            prisms
-            .to_dataframe()
-            .reset_index()
-            .dropna()
-            .astype(float)
+        # update the forward gravity and the misfit
+        gravity = update_gravity_and_misfit(
+            gravity,
+            prisms,
+            input_grav_column,
+            ITER,
         )
-
-        # add new cols to dict
-        dict_of_cols={
-            f"iter_{ITER}_top": prisms_iter.top,
-            f"iter_{ITER}_bottom": prisms_iter.bottom,
-            f"iter_{ITER}_density": prisms_iter.density,
-            f"iter_{ITER}_layer": prisms_iter.surface,
-        }
-
-        prisms_df = pd.concat([prisms_df, pd.DataFrame(dict_of_cols)], axis=1)
-
-        # update the forward gravity
-        gravity[f"iter_{ITER}_forward_grav"] = prisms.prism_layer.gravity(
-            coordinates=(gravity.x, gravity.y, gravity.z), field="g_z"
-        )
-        # center on 0
-        gravity[f"iter_{ITER}_forward_grav"] -= gravity[f"iter_{ITER}_forward_grav"].median()
-
-        # each iteration updates the topography of the layer to minizime the residual
-        # portion of the misfit. We then want to recalculate the forward gravity of the
-        # new layer, use the same original regional misfit, and re-calculate the residual
-        # Gmisfit  = Gobs_corr - Gforward
-        # Gres = Gmisfit - Greg
-        # Gres = Gobs_corr - Gforward - Greg
-        # update the residual misfit with the new forward gravity and the same regional
-        gravity[f"iter_{ITER}_final_misfit"] = (
-            gravity[input_grav_column] -
-            gravity[f"iter_{ITER}_forward_grav"] -
-            gravity.reg
-        )
-
-        # center on 0
-        gravity[f"iter_{ITER}_final_misfit"] -= gravity[f"iter_{ITER}_final_misfit"].median()
-
+    
         # update the misfit RMSE
         updated_RMSE = RMSE(gravity[f"iter_{ITER}_final_misfit"])
         print(f"\nupdated misfit RMSE: {round(updated_RMSE, 2)}")
 
-        # square-root of RMSE is the l-2 norm
-        updated_l2_norm = np.sqrt(updated_RMSE)
-
+        # update the l2 and delta l2 norms
+        l2_norm, delta_l2_norm = update_l2_norms(updated_RMSE, l2_norm)
+        
         print(
-            f"updated L2-norm: {round(updated_l2_norm, 2)}, ",
-            f"tolerance: {l2_norm_tolerance}",
-        )
-
-        updated_delta_l2_norm = l2_norm / updated_l2_norm
-
+            f"updated L2-norm: {round(l2_norm, 2)}, ",
+            f"tolerance: {l2_norm_tolerance}")
         print(
-            f"updated delta L2-norm : {round(updated_delta_l2_norm, 2)}, ",
-            f"tolerance: {delta_l2_norm_tolerance}",
-        )
-        # we want the misfit (L2-norm) to be steadily decreasing with each iteration.
-        # If it increases, something is wrong, stop inversion
-        # If it doesn't decrease enough, inversion has finished and can be stopped
-        # delta L2 norm starts at +inf, and should decreases with each iteration.
-        # if it gets close to 1, the iterations aren't making progress and can be stopped.
-        # a value of 1.001 means the L2 norm has only decrease by 0.1% between iterations.
-        # and RMSE has only decreased by 0.05%.
-
-        # update the l2_norm
-        l2_norm = updated_l2_norm
-
-        # updated the delta l2_norm
-        delta_l2_norm = updated_delta_l2_norm
-
+            f"updated delta L2-norm : {round(delta_l2_norm, 2)}, ",
+            f"tolerance: {delta_l2_norm_tolerance}")
+        
         # end iteration timer
         iter_time_end = time.perf_counter()
         iter_times.append(iter_time_end-iter_time_start)
-
-        if l2_norm > starting_l2_norm*1.2:
-            print(
-                f"\nInversion terminated after {ITER} iterations because L2 norm was",
-                "more than 20% greater than starting L2 norm",
-            )
+        
+        # decide if to end the inversion
+        end = end_inversion(
+            ITER,
+            max_iterations,
+            l2_norm,
+            starting_l2_norm,
+            l2_norm_tolerance,
+            delta_l2_norm,
+            delta_l2_norm_tolerance,
+        )
+        if end is True:
             break
-
-        if delta_l2_norm <= delta_l2_norm_tolerance: # and ITER !=1:
-            print(
-                f"\nInversion terminated after {ITER} iterations because there was",
-                "no significant variation in the L2-norm",
-            )
-            break
-
-        if l2_norm < l2_norm_tolerance:
-            print(
-                f"\nInversion terminated after {ITER} iterations with L2-norm =",
-                f"{round(l2_norm, 2)} because L2-norm < {l2_norm_tolerance}",
-            )
-            break
-
-        if ITER == max_iterations:
-            print(
-                f"\nInversion terminated after {ITER} iterations with L2-norm =",
-                f"{round(l2_norm, 2)} because maximum number of iterations ",
-                f"({max_iterations}) reached",
-            )
-            break
-
+            
     time_end = time.perf_counter()
 
     elapsed_time = int(time_end-time_start)
@@ -1065,6 +1117,7 @@ def geo_inversion(
 
     return prisms_df, gravity, params, elapsed_time
 
+
 def inversion_RMSE(
     true_surface,
     constraints=None,
@@ -1082,30 +1135,30 @@ def inversion_RMSE(
         )
 
     # grid resulting prisms
-    ds = prism_results.rename(columns={'easting':'x', 'northing':'y'}).set_index(['y', 'x']).to_xarray()
-
-    # subset the inversion region
-    # ds_inner = ds.sel(
-    #     x=slice(inversion_region[0], inversion_region[1]),
-    #     y=slice(inversion_region[2], inversion_region[3])
-    # )
+    ds = prism_results.set_index(['northing', 'easting']).to_xarray()
 
     # get last iteration's layer result
     cols = [s for s in prism_results.columns.to_list() if "_layer" in s]
-
     final_surface = ds[cols[-1]]
-
-    dif = true_surface - final_surface
+    
+    dif = utils.grd_compare(
+            true_surface,
+            final_surface,
+            plot=False,
+        )[0]
+    
+    # dif = true_surface - final_surface
 
     rmse = RMSE(dif)
-
+    
     if constraints is not None:
         df = profile.sample_grids(
             df=constraints,
             grid=final_surface,
             name="final_surface",
+            coord_names = ("easting", "northing"),
         )
-        constraints_rmse = round(RMSE(df.z - df.final_surface), 2)
+        constraints_rmse = round(RMSE(df.upward - df.final_surface), 2)
     else:
         constraints_rmse = None
 

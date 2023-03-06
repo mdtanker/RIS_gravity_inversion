@@ -20,7 +20,9 @@ import timeout_decorator
 from timeout_decorator.timeout_decorator import TimeoutError
 import joblib
 from tqdm_joblib import tqdm_joblib
-
+import psutil
+import math
+    
 import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.plotting as plots
 import RIS_gravity_inversion.utils as inv_utils
@@ -97,11 +99,9 @@ def optuna_max_cores(n_trials, optimize_study, study_name, study_storage, object
     Set up optuna optimization in parallel splitting up the number of trials over all available cores.
     """
     # get available cores (UNIX and Windows)
-    import psutil
     num_cores = len(psutil.Process().cpu_affinity())
 
     # set trials per job
-    import math
     trials_per_job = math.ceil(n_trials/num_cores)
 
     # set number of jobs
@@ -419,10 +419,20 @@ class optimal_inversion_params:
         deriv_type = trial.suggest_categorical("deriv_type", ["annulus", "prisms"])
         solver_type = trial.suggest_categorical("solver_type", ["verde least squares","scipy least squares"])
         if solver_type == "verde least squares":
-            solver_damping = trial.suggest_float("verde_damping", self.verde_damping_limits[0], self.verde_damping_limits[1])
+            solver_damping = trial.suggest_float(
+                "verde_damping", 
+                self.verde_damping_limits[0], 
+                self.verde_damping_limits[1],
+                log=True,
+            )
         elif solver_type == "scipy least squares":
-            solver_damping = trial.suggest_float("scipy_damping", self.scipy_damping_limits[0], self.scipy_damping_limits[1])
-
+            solver_damping = trial.suggest_float(
+                "scipy_damping", 
+                self.scipy_damping_limits[0], 
+                self.scipy_damping_limits[1],
+                log=True,
+            )
+                                             
         # run inversion and return RMSE between true and starting layer
         rmse, prism_results, grav_results, params, elapsed_time, constraints_RMSE = inv.inversion_RMSE(
             self.true_surface,
@@ -468,7 +478,7 @@ def get_best_of_each_param(study, objectives):
         df.set_index('number', inplace=True, drop=False)
 
     elif len(study.directions)==1:
-        df = study.trials_dataframe().sort_values(by="value")
+        df = study.trials_dataframe().sort_values(by="value").rename(columns={"value":objectives[0]})
         
     try:
         best_verde = df[df.params_solver_type == 'verde least squares'].iloc[0].number
@@ -646,11 +656,9 @@ def get_best_params_from_study(study):
 #     # with max available CPUs
 #     #####
 #     # get available cores (UNIX and Windows)
-#     import psutil
 #     num_cores = len(psutil.Process().cpu_affinity())
 
 #     # set trials per job
-#     import math
 #     trials_per_job = math.ceil(n_trials/num_cores)
 
 #     # set number of jobs
