@@ -1,0 +1,2 @@
+from RIS_gravity_inversion.optimization import optimization
+import pytest

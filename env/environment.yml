@@ -39,3 +39,4 @@ dependencies:
     - jupyter-server-proxy
     - trame
     - --editable ../../antarctic_plots
+    - --editable . 
