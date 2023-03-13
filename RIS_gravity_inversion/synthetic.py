@@ -70,7 +70,6 @@ def synthetic_topography_upper(
     high=1,
     registration="g",
 ):
-
     if registration == "g":
         pixel_register = False
     elif registration == "p":
@@ -105,7 +104,6 @@ def synthetic_topography_regional(
     registration="g",
     scale=1,
 ):
-
     if registration == "g":
         pixel_register = False
     elif registration == "p":
@@ -212,7 +210,6 @@ def synthetic_topography(
     plot_individuals=False,
     registration="g",
 ):
-
     if registration == "g":
         pixel_register = False
     elif registration == "p":
@@ -409,7 +406,6 @@ def synthetic_topography_simple(
     plot_individuals=False,
     registration="g",
 ):
-
     if registration == "g":
         pixel_register = False
     elif registration == "p":
