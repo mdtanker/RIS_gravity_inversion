@@ -18,7 +18,7 @@ tmp_outputs/*
 __pycache__/
 
 # Jupyter checkpoints
-**/.ipynb_checkpoints/
+.ipynb_checkpoints
 
 # Setuptools distribution folder
 /dist/
