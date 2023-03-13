@@ -9,40 +9,13 @@ STYLE_CHECK_FILES= . #$(PROJECT)
 #
 #
 install: delete_env
-	mamba env create --file env/environment.yml --name RIS_gravity_inversion
+	mamba env create --file environment.yml --name $(PROJECT)
 
 delete_env:
-	mamba remove --name RIS_gravity_inversion --all --yes
-
-conda_env: delete_env
-	mamba create --name RIS_gravity_inversion --yes \
-	python=3.9 \
-	pygmt \
-	geopandas \
-	geoviews \
-	numpy \
-	pandas \
-	snakeviz \
-	scipy \
-	matplotlib \
-	pyproj \
-	pyvista \
-	harmonica \
-	verde \
-	xarray \
-	tqdm \
-	rioxarray \
-	openssl \
-	seaborn \
-	ipyvtklink \
-	ipykernel \
-
-conda_yml:
-	rm env/environment.yml -f
-	mamba env export --name RIS_gravity_inversion --from-history --no-build > env/environment.yml
+	mamba remove --name $(PROJECT) --all --yes
 
 conda_update:
-	mamba env update --file env/environment.yml --name RIS_gravity_inversion
+	mamba env update --file environment.yml --name $(PROJECT)
 #
 #
 #
@@ -67,4 +40,14 @@ isort-check:
 	isort --check $(STYLE_CHECK_FILES)
 
 flake8:
-	flake8p --max-line-length 88 $(STYLE_CHECK_FILES)
+	flake8p --max-line-length 88 $(STYLE_CHECK_FILES) --exclude=.ipynb_checkpoints
+
+#
+#
+#
+# TESTING
+#
+#
+#
+test:
+	pytest --cov=. --no-cov
