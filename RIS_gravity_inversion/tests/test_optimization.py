@@ -3,7 +3,6 @@ import tempfile
 
 import optuna
 import pandas as pd
-import pytest
 
 from RIS_gravity_inversion import optimization
 

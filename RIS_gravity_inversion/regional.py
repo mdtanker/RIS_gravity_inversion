@@ -77,8 +77,8 @@ def regional_constraints(
     registration: str = "g",
     block_reduce=False,
     grid_method="pygmt",
-    dampings = np.logspace(-6, 3, num=10),
-    mindists = np.linspace(1e3, 100e3, 10),
+    dampings=np.logspace(-6, 3, num=10),
+    mindists=np.linspace(1e3, 100e3, 10),
 ):
     """
     seperate the regional field by sampling and regridding at the constraint points
@@ -115,8 +115,8 @@ def regional_constraints(
         )
     elif grid_method == "verde":
         spline = vd.SplineCV(
-            dampings = dampings,
-            mindists = mindists,
+            dampings=dampings,
+            mindists=mindists,
             delayed=True,
         )
         spline.fit(
@@ -270,7 +270,7 @@ def regional_seperation(
             eq_damping=kwargs.get("eq_damping", None),
             block_size=kwargs.get("block_size", None),
             depth_type=kwargs.get("depth_type", "relative"),
-            input_misfit_name = "misfit",
+            input_misfit_name="misfit",
         )
     else:
         raise ValueError("invalid string for regional_method")

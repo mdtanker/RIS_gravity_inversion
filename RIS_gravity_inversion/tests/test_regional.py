@@ -1,11 +1,10 @@
-#%%
-import pytest
-
-from RIS_gravity_inversion import regional
-import xarray as xr
+# %%
 import numpy as np
 import pandas as pd
+import pytest
 import verde as vd
+
+from RIS_gravity_inversion import regional
 
 
 def dummy_grid():
@@ -42,9 +41,9 @@ def test_regional_trend():
 
     df = regional.regional_trend(
         trend=0,
-        misfit_grid = dummy_grid().rename({"easting":"x", "northing":"y"}).misfit,
-        anomalies = anomalies,
-        crs = "3031",
+        misfit_grid=dummy_grid().rename({"easting": "x", "northing": "y"}).misfit,
+        anomalies=anomalies,
+        crs="3031",
     )
     print(df)
     # test  whether regional field has been remove correctly
@@ -60,9 +59,9 @@ def test_regional_filter():
 
     df = regional.regional_filter(
         filter_width="g300",
-        misfit_grid = dummy_grid().rename({"easting":"x", "northing":"y"}).misfit,
-        anomalies = anomalies,
-        registration = "g",
+        misfit_grid=dummy_grid().rename({"easting": "x", "northing": "y"}).misfit,
+        anomalies=anomalies,
+        registration="g",
     )
 
     reg_range = np.max(df.reg) - np.min(df.reg)
@@ -71,7 +70,7 @@ def test_regional_filter():
     # test  whether regional field has been remove correctly
     # by whether the limits of the regional are smaller than the limits of the gravity
     # with a 10% margin
-    assert reg_range < misfit_range*0.9
+    assert reg_range < misfit_range * 0.9
 
 
 def test_regional_constraints():
@@ -79,11 +78,13 @@ def test_regional_constraints():
     test the regional_constraints function
     """
     anomalies = dummy_df()
-    points = pd.DataFrame({"easting":[-50, -30, 0, 10, 50], "northing":[210, 280, 240, 360, 310]})
+    points = pd.DataFrame(
+        {"easting": [-50, -30, 0, 10, 50], "northing": [210, 280, 240, 360, 310]}
+    )
     df = regional.regional_constraints(
-        constraint_points = points,
-        misfit_grid = dummy_grid().rename({"easting":"x", "northing":"y"}).misfit,
-        anomalies = anomalies,
+        constraint_points=points,
+        misfit_grid=dummy_grid().rename({"easting": "x", "northing": "y"}).misfit,
+        anomalies=anomalies,
         region=[-100, 100, 200, 400],
         spacing=100,
         grid_method="verde",
@@ -93,7 +94,7 @@ def test_regional_constraints():
     misfit_range = np.max(df.misfit) - np.min(df.misfit)
     # test  whether regional field has been remove correctly
     # by whether the regional values are close the the grav values at the constraints
-    assert reg_range < misfit_range*0.9
+    assert reg_range < misfit_range * 0.9
 
 
 def test_regional_eq_sources():
@@ -101,11 +102,11 @@ def test_regional_eq_sources():
     test the regional_eq_sources function
     """
     anomalies = dummy_df()
-    anomalies['misfit'] = np.random.normal(100, 100, len(anomalies))
+    anomalies["misfit"] = np.random.normal(100, 100, len(anomalies))
 
     df = regional.regional_eq_sources(
-        source_depth = 1000e3,
-        anomalies = anomalies,
+        source_depth=1000e3,
+        anomalies=anomalies,
     )
     print(df)
     reg_range = np.max(df.reg) - np.min(df.reg)
@@ -113,4 +114,4 @@ def test_regional_eq_sources():
     print(reg_range, misfit_range)
     # test  whether regional field has been remove correctly
     # by whether the regional values are close the the grav values at the constraints
-    assert reg_range < misfit_range*0.9
+    assert reg_range < misfit_range * 0.9

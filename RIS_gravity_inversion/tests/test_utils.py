@@ -1,11 +1,11 @@
 # %%
+import numpy as np
 import pandas as pd
 import pytest
-import xarray as xr
-import numpy as np
-from RIS_gravity_inversion import utils
 import verde as vd
-import numpy as np
+
+from RIS_gravity_inversion import utils
+
 
 def test_RMSE():
     """
@@ -62,6 +62,6 @@ def test_dist_nearest_points():
     np.array_equal(ds_results, da_results)
     np.array_equal(da_results, df_results)
 
-    #test that smallest min_dist and largest min_dist are correct
+    # test that smallest min_dist and largest min_dist are correct
     assert np.min(df_results) == pytest.approx(0)
     assert np.max(df_results) == pytest.approx(5.656854)

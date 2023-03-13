@@ -82,12 +82,13 @@ def misfit(
 # @numba.jit(cache=True, nopython=True)
 # def grav_column_der_old(x0, y0, z0, xc, yc, z1, z2, res, rho):
 #     """
-#     Function to calculate the vertical derivate of the gravitational acceleration at an
-#     observation point caused
+#     Function to calculate the vertical derivate of the gravitational acceleration at
+#     an observation point caused
 #     by a right, rectangular prism.
 #     Approximated with Hammer's annulus approximation.
 #     x0, y0, z0: floats, coordinates of gravity observation points
-#     xc, yc, z1, z2: floats, coordinates of prism's y, x, top, and bottom, respectively.
+#     xc, yc, z1, z2: floats, coordinates of prism's y, x, top, and bottom,
+#     respectively.
 #     res: float, resolution of prism layer in meters,
 #     rho: float, density of prisms, in kg/m^3
 #     """
@@ -111,6 +112,7 @@ def misfit(
 #     )
 #     return anomaly_grad
 
+
 @numba.jit(cache=True, nopython=True)
 def grav_column_der(
     grav_easting: np.array,
@@ -127,13 +129,17 @@ def grav_column_der(
     observation point caused
     by a right, rectangular prism.
     Approximated with Hammer's annulus approximation.
-    grav_easting, grav_northing, grav_upward: floats, coordinates of gravity observation points
+    grav_easting, grav_northing, grav_upward: floats, coordinates of gravity
+    observation points.
     prism_northing, easting, top: floats, coordinates of prism's center in northing,
     easting, and upward directions, respectively.
     prism_resolution: float, resolution of prism layer in meters,
     prism_density: float, density of prisms, in kg/m^3
     """
-    r = np.sqrt(np.square(grav_northing - prism_northing) + np.square(grav_easting - prism_easting))
+    r = np.sqrt(
+        np.square(grav_northing - prism_northing)
+        + np.square(grav_easting - prism_easting)
+    )
     r1 = r - 0.5 * prism_spacing
     r2 = r + 0.5 * prism_spacing
 
@@ -156,6 +162,7 @@ def grav_column_der(
         )
     )
     return anomaly_grad
+
 
 @numba.njit(parallel=True)
 def jacobian_annular(
@@ -203,7 +210,7 @@ def prism_properties(
     prisms_layer,
     method="itertools",
 ):
-    """ extract prism properties """
+    """extract prism properties"""
 
     if method == "itertools":
         prisms_properties = []
@@ -223,19 +230,22 @@ def prism_properties(
         for y in range(prisms_layer.northing.size):
             for x in range(prisms_layer.easting.size):
                 prisms_properties.append(
-                    list(prisms_layer.prism_layer.get_prism((y, x)))+\
-                [prisms_layer.density.values[y, x]])
+                    list(prisms_layer.prism_layer.get_prism((y, x)))
+                    + [prisms_layer.density.values[y, x]]
+                )
         np.asarray(prisms_properties)
     elif method == "generator":
         # slower, but doesn't allocate memory
         prisms_properties = [
-            list(prisms_layer.prism_layer.get_prism((y, x))) + [
-                    prisms_layer.density.values[y, x]]
+            list(prisms_layer.prism_layer.get_prism((y, x)))
+            + [prisms_layer.density.values[y, x]]
             for y in range(prisms_layer.northing.size)
             for x in range(prisms_layer.easting.size)
-            ]
+        ]
     else:
-        raise ValueError("method must be one of 'itertools', 'forloops', or 'generator'")
+        raise ValueError(
+            "method must be one of 'itertools', 'forloops', or 'generator'"
+        )
 
     return prisms_properties
 
@@ -461,7 +471,6 @@ def solver(
     #     if bounds is None:
     #         bounds = [-np.inf, np.inf]
 
-
     elif solver_type == "CLR":
         """
         https://github.com/avidale/constrained-linear-regression
@@ -497,7 +506,7 @@ def solver(
         )[0]
 
     elif solver_type == "steepest descent":
-        """ Jacobian transppose algorithm """
+        """Jacobian transppose algorithm"""
         residuals = residuals
         step = jacobian.T @ residuals
 

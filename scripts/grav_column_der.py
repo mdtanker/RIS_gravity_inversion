@@ -48,6 +48,7 @@ def hammer_annulus_gravity(r, R, h, rho):
 
     return anom
 
+
 def hammer_annulus_gravity_elevated(r, R, h, e, rho):
     """
     Gravity effect for an annulus of topography at measurement height e above the geoid.
@@ -60,10 +61,18 @@ def hammer_annulus_gravity_elevated(r, R, h, e, rho):
     rho: density in g/cm^3 or Mg/m^3
     """
 
-    anom = 0.0419 * rho * (
-        np.sqrt(R**2 + (e-h)**2) - np.sqrt(r**2 + (e-h)**2) - np.sqrt(R**2 + e**2))
+    anom = (
+        0.0419
+        * rho
+        * (
+            np.sqrt(R**2 + (e - h) ** 2)
+            - np.sqrt(r**2 + (e - h) ** 2)
+            - np.sqrt(R**2 + e**2)
+        )
+    )
 
     return anom
+
 
 def hammer_prism_gravity(xp, yp, zp, res, rho):
     """
@@ -76,8 +85,8 @@ def hammer_prism_gravity(xp, yp, zp, res, rho):
     rho: density in g/cm^3 or Mg/m^3
     """
 
-    r = np.sqrt(xp**2 + yp**2) - np.sqrt(res**2/2) # eq 2.17
-    R = np.sqrt(xp**2 + yp**2) + np.sqrt(res**2/2) # eq 2.18
+    r = np.sqrt(xp**2 + yp**2) - np.sqrt(res**2 / 2)  # eq 2.17
+    R = np.sqrt(xp**2 + yp**2) + np.sqrt(res**2 / 2)  # eq 2.18
 
     # f is ratio of area of terrain and area of annulus
     f = res**2 / (np.pi * (R**2 - r**2))  # eq 2.19 and 6.13
@@ -85,6 +94,7 @@ def hammer_prism_gravity(xp, yp, zp, res, rho):
     anom = f * hammer_annulus_gravity(r=r, R=R, h=zp, rho=rho)
 
     return anom
+
 
 def hammer_prism_gravity_elevated(xp, yp, zp, e, res, rho):
     """
@@ -97,8 +107,8 @@ def hammer_prism_gravity_elevated(xp, yp, zp, e, res, rho):
     rho: density in g/cm^3 or Mg/m^3
     """
 
-    r = np.sqrt(xp**2 + yp**2) - np.sqrt(res**2/2) # eq 2.17
-    R = np.sqrt(xp**2 + yp**2) + np.sqrt(res**2/2) # eq 2.18
+    r = np.sqrt(xp**2 + yp**2) - np.sqrt(res**2 / 2)  # eq 2.17
+    R = np.sqrt(xp**2 + yp**2) + np.sqrt(res**2 / 2)  # eq 2.18
 
     # f is ratio of area of terrain and area of annulus
     f = res**2 / (np.pi * (R**2 - r**2))  # eq 2.19 and 6.13
@@ -108,34 +118,49 @@ def hammer_prism_gravity_elevated(xp, yp, zp, e, res, rho):
     return anom
 
 
+# def hammer_annulus_gravity(rho, R, r, h):
+#     """Gravity effect for an annulus of topography. Eq.2.13 in McCubbine 2016.
+#     rho: density in g/cm^3 or Mg/m^3
+#     R: outer radius of annulus in m
+#     r: inner radius of annulus in m
+#     h: height of annulus in m
+#     """
+#     anom = 0.0419 * rho * (R - r + np.sqrt(r**2 + h**2) - np.sqrt(R**2 + h**2))
+#     r = np.sqrt((x0 - xc) ** 2 + (y0 - yc) ** 2)
+#     r1 = r - sqrt(res**2 / 2)  # eq 2.17
+#     r2 = r + sqrt(res**2 / 2)  # eq 2.18
+
+#     f = res**2 / (np.pi * (r2**2 - r1**2))  # eq 2.19
+
+#     h = z1 - z0
+
+#     anom = (
+#         f
+#         * 0.0419
+#         * rho
+#         * (
+#             r2
+#             - r1
+#             + np.sqrt(r1**2 + (z1 - z0) ** 2)
+#             - np.sqrt(r2**2 + (z1 - z0) ** 2)
+#         )
+#     )  # eq 2.20
+
+#     # derivative of anomaly with respect to height
+#     anom_grad = (
+#         f
+#         * 0.0419
+#         * rho
+#         * (z1 - z0)
+#         * (
+#             1 / np.sqrt(r2**2 + (z1 - z0) ** 2)
+#             - 1 / np.sqrt(r1**2 + (z1 - z0) ** 2)
+#         )
+#     )
+
+#     return anom_grad
 
 
-
-
-
-
-def hammer_annulus_gravity(rho, R, r, h):
-    """ Gravity effect for an annulus of topography. Eq.2.13 in McCubbine 2016.
-    rho: density in g/cm^3 or Mg/m^3
-    R: outer radius of annulus in m
-    r: inner radius of annulus in m
-    h: height of annulus in m
-    """
-    anom = 0.0419 * rho * (R - r + np.sqrt(r**2 + h**2) - np.sqrt(R**2 + h**2))
-    r = np.sqrt((x0 - xc) ** 2 + (y0 - yc) ** 2)
-    r1= r - sqrt(res**2/2) # eq 2.17
-    r2= r + sqrt(res**2/2) # eq 2.18
-
-    f = res**2 / (np.pi * (r2**2 - r1**2))  # eq 2.19
-
-    h = z1 - z0
-
-    anom = f*0.0419*rho* (r2 - r1 + np.sqrt(r1**2 + (z1 - z0)**2) - np.sqrt(r2**2 + (z1 - z0)**2)) # eq 2.20
-
-    #derivative of anomaly with respect to height
-    anom_grad = f*0.0419*rho* (z1 - z0) * (1 / np.sqrt(r2**2 + (z1 - z0) ** 2)- 1 / np.sqrt(r1**2 + (z1 - z0) ** 2))
-
-    return anom_grad
 """
 Eq. 2.13 Gravity effect for an annulus with inner radius r, outer radius R, height h
 g = 2 * pi * G * rho * (R - r + sqrt(r**2 + h**2) - sqrt(R**2 + h**2))
