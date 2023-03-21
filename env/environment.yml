@@ -14,7 +14,7 @@ dependencies:
   - pyvista
   - pyvista-xarray
   - harmonica
-  - verde
+  # - verde
   - xarray
   - tqdm
   - rioxarray
@@ -31,8 +31,11 @@ dependencies:
   - pytest
   - pytest-cov
   - python-dotenv
+  - mamba
   - pip
   - pip:
+    - git+https://github.com/fatiando/verde
+    # - git+https://github.com/mdtanker/antarctic_plots
     - numba-progress
     - tqdm-joblib
     - jupyter-server-proxy
@@ -40,5 +43,5 @@ dependencies:
     - flake8-pyproject
     - black[jupyter]
     - constrained-linear-regression
-    - --editable ../antarctic_plots
-    - --editable .
+    - --editable ../
+    - --editable ../../antarctic_plots

@@ -8,14 +8,15 @@ STYLE_CHECK_FILES= . #$(PROJECT)
 #
 #
 #
-install: delete_env
-	mamba env create --file environment.yml --name $(PROJECT)
+install:
+	pip install -e .
+	pip install --upgrade git+https://github.com/fatiando/verde
 
-delete_env:
-	mamba remove --name $(PROJECT) --all --yes
+conda_install:
+	mamba env create --file env/environment.yml --name $(PROJECT) --force
 
 conda_update:
-	mamba env update --file environment.yml --name $(PROJECT)
+	mamba env update --file env/environment.yml --name $(PROJECT) --prune
 #
 #
 #
