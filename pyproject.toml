@@ -1,0 +1,74 @@
+
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RIS_gravity_inversion"
+dynamic = ["version"]
+description = "Gravity inversion for sub-Ross Ice Shelf bathymetry"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Matthew Tankersley", email = "matt.d.tankersley@gmail.com"},
+]
+keywords = ["geophysics", "gravity", "inversion", "bathymetry", "antarctica"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "antarctic_plots[interactive, viz]>=0.0.6",
+    "snakeviz",
+    "matplotlib",
+    "pyvista",
+    "pyvista-xarray",
+    "harmonica",
+    "numba",
+    "optuna",
+    "plotly",
+    "hvplot",
+    "jupyter_bokeh",
+    "jupyterlab",
+    "ipykernel",
+    "numba-progress",
+    "tqdm-joblib",
+    "jupyter-server-proxy",
+    "trame",
+    "constrained-linear-regression",
+]
+
+[project.optional-dependencies]
+
+[project.urls]
+repository = "https://github.com/mdtanker/RIS_gravity_inversion"
+
+[tool.setuptools]
+packages = ["RIS_gravity_inversion"]
+
+[tool.setuptools.dynamic]
+version = {attr = "RIS_gravity_inversion.__version__"}
+
+[tool.flake8]
+max-line-length = 88
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "*/tests/*",
+    "**/__init__.py",
+    ]
+
+[tool.pytest.ini_options]
+markers = [
+]
