@@ -1,4 +1,5 @@
 import math
+import warnings
 
 import joblib
 import numpy as np
@@ -69,11 +70,13 @@ def optuna_parallel(
             study_name=study_name,
             storage=study_storage,
         )
-        study.optimize(
-            objective,
-            n_trials=n_trials,
-            show_progress_bar=True,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Progress bar is experimental")
+            study.optimize(
+                objective,
+                n_trials=n_trials,
+                show_progress_bar=True,
+            )
 
     # reload the study
     study = optuna.load_study(
@@ -317,14 +320,207 @@ class optimal_regional_params:
             raise ValueError("invalid string for region_method")
 
         # run regional seperations and return RMSE based on comparison method.
-        rmse, df = inv_utils.regional_seperation_quality(
-            regional_method=regional_method,
-            comparison_method=self.comparison_method,
-            param=param,
+        with inv_utils.HiddenPrints():
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Engine 'cfgrib'")
+                rmse, df = inv_utils.regional_seperation_quality(
+                    regional_method=regional_method,
+                    comparison_method=self.comparison_method,
+                    param=param,
+                    **self.kwargs,
+                )
+
+        return rmse
+
+
+class optimal_eq_source_params:
+    def __init__(
+        self,
+        coordinates,
+        data,
+        damping_limits,
+        depth_limits,
+        **kwargs,
+    ):
+        self.coordinates = coordinates
+        self.data = data
+        self.damping_limits = damping_limits
+        self.depth_limits = depth_limits
+        self.kwargs = kwargs
+
+    def __call__(self, trial):
+        # define parameter space
+        damping = trial.suggest_float(
+            "damping",
+            self.damping_limits[0],
+            self.damping_limits[1],
+        )
+        depth = trial.suggest_float(
+            "depth",
+            self.depth_limits[0],
+            self.depth_limits[1],
+        )
+
+        score = inv_utils.eq_sources_score(
+            params={"damping": damping, "depth": depth},
+            coordinates=self.coordinates,
+            data=self.data,
             **self.kwargs,
         )
 
-        return rmse
+        return score
+
+
+class optimal_inversion_damping_and_weights:
+    def __init__(
+        self,
+        true_surface,
+        weights_inner_limits,
+        weights_outer_limits,
+        weights_step,
+        damping_limits,  # will be 10^lim, with lim as integers, [-2, 0] = [.01, .1, 1]
+        starting_prisms,
+        objectives=["RMSE"],  # can include: 'RMSE', 'duration', 'constraints'
+        constraints=None,
+        **kwargs,
+    ):
+        self.true_surface = true_surface
+        self.damping_limits = damping_limits
+        self.weights_inner_limits = weights_inner_limits
+        self.weights_outer_limits = weights_outer_limits
+        self.starting_prisms = starting_prisms
+        self.objectives = objectives
+        self.constraints = constraints
+        self.weights_step = weights_step
+        self.kwargs = kwargs
+
+    def __call__(self, trial):
+        # define parameter space
+        exp = trial.suggest_int(
+            "damping",
+            self.damping_limits[0],
+            self.damping_limits[1],
+        )
+        solver_damping = 10**exp
+        if len(self.weights_inner_limits) == 1:
+            weights_inner = self.weights_inner_limits[0]
+            weights_outer = trial.suggest_int(
+                "weights_outer",
+                self.weights_outer_limits[0],
+                self.weights_outer_limits[1],
+                self.weights_step,
+            )
+        else:
+            weights_inner = trial.suggest_int(
+                "weights_inner",
+                self.weights_inner_limits[0],
+                self.weights_inner_limits[1],
+                self.weights_step,
+            )
+            weights_outer = trial.suggest_int(
+                "weights_outer",
+                self.weights_outer_limits[0],
+                self.weights_outer_limits[1],
+                self.weights_step,
+            )
+
+        # re-create the weights grid
+        weights, _ = inv_utils.constraints_grid(
+            self.constraints,
+            self.starting_prisms.drop("weights"),
+            inner_bound=weights_inner,
+            outer_bound=weights_outer,
+            low=0,
+            high=1,
+            region=self.kwargs.get("inversion_region"),
+            interp_type="spline",
+        )
+
+        self.starting_prisms["weights"] = weights
+
+        # run inversion and return RMSE between true and starting layer
+        (
+            rmse,
+            prism_results,
+            grav_results,
+            params,
+            elapsed_time,
+            constraints_RMSE,
+        ) = inv.inversion_RMSE(
+            self.true_surface,
+            self.constraints,
+            prism_layer=self.starting_prisms,
+            plot=False,
+            solver_damping=solver_damping,
+            **self.kwargs,
+        )
+
+        objective_values = []
+        if "RMSE" in self.objectives:
+            objective_values.append(rmse)
+
+        if "duration" in self.objectives:
+            objective_values.append(elapsed_time)
+
+        if "constraints" in self.objectives:
+            objective_values.append(constraints_RMSE)
+            print(f"RMSE between surfaces at constraints: {constraints_RMSE} m")
+
+        return tuple(objective_values)
+
+
+class optimal_inversion_damping:
+    def __init__(
+        self,
+        true_surface,
+        damping_limits,  # will be 10^lim, with lim as integers, so [-2, 0]=[.01, .1, 1]
+        objectives=["RMSE"],  # can include: 'RMSE', 'duration', 'constraints'
+        constraints=None,
+        **kwargs,
+    ):
+        self.true_surface = true_surface
+        self.damping_limits = damping_limits
+        self.objectives = objectives
+        self.constraints = constraints
+        self.kwargs = kwargs
+
+    def __call__(self, trial):
+        # define parameter space
+        exp = trial.suggest_int(
+            "damping",
+            self.damping_limits[0],
+            self.damping_limits[1],
+        )
+        solver_damping = 10**exp
+
+        # run inversion and return RMSE between true and starting layer
+        (
+            rmse,
+            prism_results,
+            grav_results,
+            params,
+            elapsed_time,
+            constraints_RMSE,
+        ) = inv.inversion_RMSE(
+            self.true_surface,
+            self.constraints,
+            plot=False,
+            solver_damping=solver_damping,
+            **self.kwargs,
+        )
+
+        objective_values = []
+        if "RMSE" in self.objectives:
+            objective_values.append(rmse)
+
+        if "duration" in self.objectives:
+            objective_values.append(elapsed_time)
+
+        if "constraints" in self.objectives:
+            objective_values.append(constraints_RMSE)
+            print(f"RMSE between surfaces at constraints: {constraints_RMSE} m")
+
+        return tuple(objective_values)
 
 
 class optimal_inversion_params:
@@ -351,19 +547,18 @@ class optimal_inversion_params:
             "solver_type", ["verde least squares", "scipy least squares"]
         )
         if solver_type == "verde least squares":
-            solver_damping = trial.suggest_float(
+            exp = trial.suggest_int(
                 "verde_damping",
                 self.verde_damping_limits[0],
                 self.verde_damping_limits[1],
-                log=True,
             )
         elif solver_type == "scipy least squares":
-            solver_damping = trial.suggest_float(
+            exp = trial.suggest_int(
                 "scipy_damping",
                 self.scipy_damping_limits[0],
                 self.scipy_damping_limits[1],
-                log=True,
             )
+        solver_damping = 10**exp
 
         # run inversion and return RMSE between true and starting layer
         (
@@ -410,10 +605,10 @@ def get_best_of_each_param(study, objectives):
                 best_trials[j.number]["duration"] = seconds
             best_trials[j.number]["params_deriv_type"] = j.params["deriv_type"]
             best_trials[j.number]["params_solver_type"] = j.params["solver_type"]
-            best_trials[j.number]["params_scipy_damping"] = j.params.get(
+            best_trials[j.number]["params_scipy_damping"] = 10 ** j.params.get(
                 "scipy_damping", np.nan
             )
-            best_trials[j.number]["params_verde_damping"] = j.params.get(
+            best_trials[j.number]["params_verde_damping"] = 10 ** j.params.get(
                 "verde_damping", np.nan
             )
         df = pd.DataFrame(best_trials.values())
@@ -458,9 +653,9 @@ def get_best_params_from_study(study):
     # for single objective
     try:
         if study.best_params["solver_type"] == "scipy least squares":
-            solver_damping = study.best_params["scipy_damping"]
+            solver_damping = 10 ** study.best_params["scipy_damping"]
         elif study.best_params["solver_type"] == "verde least squares":
-            solver_damping = study.best_params["verde_damping"]
+            solver_damping = 10 ** study.best_params["verde_damping"]
         max_layer_change_per_iter = (
             None  # study.best_params['max_layer_change_per_iter']
         )
@@ -471,9 +666,9 @@ def get_best_params_from_study(study):
     except RuntimeError:
         best = min(study.best_trials, key=lambda t: t.values[0])
         if best.params["solver_type"] == "scipy least squares":
-            solver_damping = best.params["scipy_damping"]
+            solver_damping = 10 ** best.params["scipy_damping"]
         elif best.params["solver_type"] == "verde least squares":
-            solver_damping = best.params["verde_damping"]
+            solver_damping = 10 ** best.params["verde_damping"]
         max_layer_change_per_iter = None  # best.params['max_layer_change_per_iter']
         deriv_type = best.params["deriv_type"]
         solver_type = best.params["solver_type"]

@@ -608,6 +608,7 @@ def contaminate(data, stddev, percent=False, return_stddev=False, seed=None):
             continue
         if percent:
             stddev[i] = stddev[i] * max(abs(data[i]))
+        print(f"Standard deviation used for noise: {stddev}")
         noise = np.random.normal(scale=stddev[i], size=len(data[i]))
         # Subtract the mean so that the noise doesn't introduce a systematic
         # shift in the data

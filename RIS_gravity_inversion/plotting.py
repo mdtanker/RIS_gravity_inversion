@@ -1,3 +1,5 @@
+import string
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,12 +11,77 @@ import pygmt
 import pyvista as pv
 import seaborn as sns
 import verde as vd
-from antarctic_plots import profile, utils
+import xarray as xr
+from antarctic_plots import maps, utils
 from plotly.subplots import make_subplots
 
 import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.utils as inv_utils
 from RIS_gravity_inversion import optimization
+
+
+def plot_data_and_layers(
+    topo_grids,
+    topo_titles,
+    grav_grid,
+    inversion_region,
+    buffer_region=None,
+    points=None,
+    points_style="c0.05c",
+    robust: bool = True,
+):
+    if buffer_region is None:
+        buffer_region = inversion_region
+
+    fig = maps.plot_grd(
+        grid=grav_grid,
+        fig_height=8,
+        cmap="vik",
+        region=buffer_region,
+        title="Observed gravity",
+        cbar_unit="mGal",
+        show_region=inversion_region,
+        hist=True,
+        cbar_yoffset=3,
+        robust=robust,
+    )
+    fig.text(
+        position="TL",
+        justify="BL",
+        text="a)",
+        font="18p,Helvetica,black",
+        offset="j0/.3",
+        no_clip=True,
+    )
+    for i, j in enumerate(topo_grids):
+        fig = maps.plot_grd(
+            grid=j,
+            fig_height=8,
+            cmap="rain",
+            reverse_cpt=True,
+            region=buffer_region,
+            grd2cpt=True,
+            title=topo_titles[i],
+            cbar_label="elevation",
+            cbar_unit="m",
+            show_region=inversion_region,
+            hist=True,
+            cbar_yoffset=3,
+            fig=fig,
+            origin_shift="xshift",
+            points=points,
+            points_style=points_style,
+            robust=robust,
+        )
+        fig.text(
+            position="TL",
+            justify="BL",
+            text=f"{string.ascii_lowercase[i+1]})",
+            font="18p,Helvetica,black",
+            offset="j0/.3",
+            no_clip=True,
+        )
+    return fig
 
 
 def plotly_subplots(grids, titles):
@@ -499,17 +566,83 @@ def forward_grav_plotting(
     return grid_dict
 
 
+def corrections_plotting(
+    df: pd.DataFrame,
+    cols_to_grid: list,
+    titles: list = None,
+    robust: bool = True,
+    inversion_region: list = None,
+    buffer_region: list = None,
+    points: pd.DataFrame = None,
+    points_style: str = "c0.05c",
+    **kwargs,
+):
+    """
+    Plot results from partial bouguer corrections.
+    """
+
+    ds = df.set_index(["northing", "easting"]).to_xarray()
+
+    grids = []
+    for i in cols_to_grid:
+        grids.append(ds[i])
+
+    if titles is None:
+        titles = cols_to_grid
+
+    for i, g in enumerate(grids):
+        if i == 0:
+            fig = None
+            origin_shift = "initialize"
+        else:
+            origin_shift = "xshift"
+
+        fig = maps.plot_grd(
+            grid=g,
+            fig_height=9,
+            cmap=f"vik+h{np.nanmedian(g)}",
+            robust=robust,
+            region=buffer_region,
+            title=titles[i],
+            cbar_unit="mGal",
+            show_region=inversion_region,
+            hist=True,
+            cbar_yoffset=3,
+            # grd2cpt=True,
+            title_font="16p,Helvetica-bold,black",
+            fig=fig,
+            origin_shift=origin_shift,
+            points=points,
+            points_style=points_style,
+            shp_mask=kwargs.get("shp_mask", None),
+        )
+        fig.text(
+            position="TL",
+            justify="BL",
+            text=f"{string.ascii_lowercase[i]})",
+            font="18p,Helvetica,black",
+            offset="j0/.3",
+            no_clip=True,
+        )
+
+    return fig
+
+
 def misfit_plotting(
     df: pd.DataFrame,
     region: list = None,
     grav_spacing: float = None,
     registration="g",
     constraints: pd.DataFrame = None,
+    robust: bool = True,
+    points_style: str = "c0.05c",
     **kwargs,
 ):
     """
     Plot results from anomaly calculations.
-
+    If either region or grav_spacing are provided, the full regions will be gridded.
+    If neither are provided, the data is assumed to be regularly spaced and will be
+    plotted as is.
     Parameters
     ----------
     df : pd.DataFrame
@@ -523,64 +656,114 @@ def misfit_plotting(
     input_forward_column = kwargs.get("input_forward_column", "forward")
     input_grav_column = kwargs.get("input_grav_column", "grav")
 
-    # if inversion region not supplied, extract from dataframe
-    if region is None:
-        region = vd.get_region((df.easting, df.northing))
+    if (region is None) & (grav_spacing is None):
+        ds = df.set_index(["northing", "easting"]).to_xarray()
+        grav = ds[input_grav_column]
+        forward = ds[input_forward_column]
 
-    # if gravity spacing not supplied, extract from dataframe
-    if grav_spacing is None:
-        grid = df.set_index(["northing", "easting"]).to_xarray()[input_grav_column]
-        grav_spacing = float(utils.get_grid_info(grid)[0])
+    else:
+        # if inversion region not supplied, extract from dataframe
+        if region is None:
+            region = vd.get_region((df.easting, df.northing))
+        # if gravity spacing not supplied, extract from dataframe
+        if grav_spacing is None:
+            grid = df.set_index(["northing", "easting"]).to_xarray()[input_grav_column]
+            grav_spacing = float(utils.get_grid_info(grid)[0])
 
-    grav = pygmt.surface(
-        data=df[["easting", "northing", input_grav_column]],
-        region=region,
-        spacing=grav_spacing,
-        T=0.25,
-        # M="0c",
-        registration=registration,
-    )
+        grav = pygmt.surface(
+            data=df[["easting", "northing", input_grav_column]],
+            region=region,
+            spacing=grav_spacing,
+            T=0.25,
+            # M="0c",
+            registration=registration,
+        )
 
-    forward = pygmt.surface(
-        data=df[["easting", "northing", input_forward_column]],
-        region=region,
-        spacing=grav_spacing,
-        T=0.25,
-        # M="0c",
-        registration=registration,
-    )
+        forward = pygmt.surface(
+            data=df[["easting", "northing", input_forward_column]],
+            region=region,
+            spacing=grav_spacing,
+            T=0.25,
+            # M="0c",
+            registration=registration,
+        )
+
+    if constraints is not None:
+        constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
 
     plot_type = kwargs.get("plot_type", "xarray")
     if plot_type == "xarray":
         cmap = "RdBu_r"
         diff_cmap = "RdBu_r"
+
+        utils.grd_compare(
+            grav,
+            forward,
+            plot=True,
+            plot_type=plot_type,
+            cmap=cmap,
+            robust=robust,
+            verbose="e",
+            grid1_name="Gravity anomaly",
+            grid2_name="Predicted gravity",
+            title="misfit",
+            shp_mask=kwargs.get("shp_mask", None),
+            hist=kwargs.get("hist", True),
+            inset=False,
+            cbar_unit="mGal",
+            subplot_labels=True,
+            RMSE_decimales=1,
+            diff_cmap=diff_cmap,
+            points=constraints,
+            points_style=points_style,
+        )
+        fig = None
+
     elif plot_type == "pygmt":
-        cmap = "vik"
-        diff_cmap = "vik+h0"
+        dif = grav - forward
+        rmse = inv_utils.RMSE(dif)
 
-    if constraints is not None:
-        constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
+        grids = [grav, dif, forward]
+        titles = [
+            "Gravity anomaly",
+            f"misfit: {round(rmse,2)} mGal",
+            "Predicted gravity",
+        ]
 
-    utils.grd_compare(
-        grav,
-        forward,
-        plot=True,
-        plot_type=plot_type,
-        cmap=cmap,
-        robust=False,
-        verbose="e",
-        grid1_name="Corrected observed gravity",
-        grid2_name="Forward gravity",
-        title="Gravity misfit",
-        shp_mask=kwargs.get("shp_mask", None),
-        hist=kwargs.get("hist", True),
-        inset=False,
-        cbar_unit="mGal",
-        subplot_labels=True,
-        RMSE_decimates=1,
-        diff_cmap=diff_cmap,
-        points=constraints,
-    )
+        for i, g in enumerate(grids):
+            if i == 0:
+                fig = None
+                origin_shift = "initialize"
+            else:
+                origin_shift = "xshift"
+
+            fig = maps.plot_grd(
+                grid=g,
+                fig_height=9,
+                cmap="vik",
+                robust=robust,
+                title=titles[i],
+                cbar_unit="mGal",
+                hist=True,
+                cbar_yoffset=3,
+                # grd2cpt=True,
+                title_font="16p,Helvetica-bold,black",
+                fig=fig,
+                origin_shift=origin_shift,
+                points=constraints,
+                points_style=points_style,
+                shp_mask=kwargs.get("shp_mask", None),
+            )
+            fig.text(
+                position="TL",
+                justify="BL",
+                text=f"{string.ascii_lowercase[i]})",
+                font="18p,Helvetica,black",
+                offset="j0/.3",
+                no_clip=True,
+            )
+        fig.show()
+    # return fig
 
 
 def anomalies_plotting(
@@ -588,8 +771,8 @@ def anomalies_plotting(
     region: list = None,
     grav_spacing: float = None,
     registration="g",
-    plot_dists: bool = False,
-    plot_power_spectrums: bool = False,
+    robust=True,
+    plot_type="xarray",
     **kwargs,
 ):
     """
@@ -603,10 +786,6 @@ def anomalies_plotting(
         GMT format region to use for the plots, by default is extent of gravity data
     grav_spacing : float, optional
         spacing of the gravity data to create plots, by default None
-    plot_dists : bool, optional
-        Choose whether to plot the resulting distributions, by default False
-    plot_power_spectrums : bool, optional
-        Choose to plot radially average power spectrum of layers, by default False
 
     Returns
     -------
@@ -616,19 +795,10 @@ def anomalies_plotting(
 
     input_forward_column = kwargs.get("input_forward_column", "forward")
     input_grav_column = kwargs.get("input_grav_column", "grav")
-
-    # if inversion region not supplied, extract from dataframe
-    if region is None:
-        region = vd.get_region((df_anomalies.easting, df_anomalies.northing))
-
-    # if gravity spacing not supplied, extract from dataframe
-    if grav_spacing is None:
-        grid = df_anomalies.set_index(["northing", "easting"]).to_xarray()[
-            input_grav_column
-        ]
-        grav_spacing = float(utils.get_grid_info(grid)[0])
-
     constraints = kwargs.get("constraints", None)
+    shp_mask = kwargs.get("shp_mask", None)
+
+    df = df_anomalies.copy()
 
     # get columns to include in gridding
     cols_to_grid = [
@@ -639,170 +809,242 @@ def anomalies_plotting(
         "res",
     ]
 
-    # get RMSE value for misfit
-    rmse = inv_utils.RMSE(df_anomalies.res)
-
-    # set titles for grids
-    plot_titles = [
-        "observed gravity (corr)",
-        "gravity misfit",
-        "forward gravity",
-        "regional misfit",
-        f"residual misfit: {round(rmse, 2)} mGal",
-    ]
-
-    sub_width = 5
-    # nrows, ncols = utils.square_subplots(len(cols_to_grid))
-    nrows, ncols = 2, 3
-
-    # setup subplot figure
-    fig, axs = plt.subplots(
-        nrows=nrows,
-        ncols=ncols,
-        figsize=(sub_width * ncols, sub_width * nrows),
-    )
-
     # empty list of grids to append to
     anom_grids = []
-    for col in cols_to_grid:
-        grid = pygmt.surface(
-            data=df_anomalies[["easting", "northing", col]],
-            region=region,
-            spacing=grav_spacing,
-            T=0.25,
-            # M="0c",
-            registration=registration,
+
+    if (region is None) & (grav_spacing is None):
+        ds = (
+            df.set_index(["northing", "easting"])
+            .to_xarray()
+            .rename({"easting": "x", "northing": "y"})
         )
-        anom_grids.append(grid)
+        for col in cols_to_grid:
+            anom_grids.append(ds[col])
 
-    shp_mask = kwargs.get("shp_mask", None)
+    else:
+        for col in cols_to_grid:
+            # if inversion region not supplied, extract from dataframe
+            if region is None:
+                region = vd.get_region((df.easting, df.northing))
+            # if gravity spacing not supplied, extract from dataframe
+            if grav_spacing is None:
+                grid = df.set_index(["northing", "easting"]).to_xarray()[col]
+                grav_spacing = float(utils.get_grid_info(grid)[0])
 
-    grav_lims = utils.get_min_max(anom_grids[0], shp_mask)
-    forward_lims = utils.get_min_max(anom_grids[2], shp_mask)
-
-    # get min and max of both grids together
-    vmin = min(grav_lims[0], forward_lims[0])
-    vmax = max(grav_lims[1], forward_lims[1])
-
-    for i, (col, ax) in enumerate(zip(cols_to_grid, axs.ravel())):
-        # plot each grid
-        if i in [0, 2]:
-            anom_grids[i].plot(
-                ax=ax,
-                x="x",
-                y="y",
-                cmap="RdBu_r",
-                vmin=vmin,
-                vmax=vmax,
-                cbar_kwargs={
-                    "orientation": "horizontal",
-                    "anchor": (1, 1),
-                    "fraction": 0.05,
-                    "pad": 0.04,
-                },
+            grid = pygmt.surface(
+                data=df[["easting", "northing", col]],
+                region=region,
+                spacing=grav_spacing,
+                T=0.25,
+                # M="0c",
+                registration=registration,
             )
-        else:
-            anom_grids[i].plot(
-                ax=ax,
-                x="x",
-                y="y",
-                robust=True,
-                cmap="RdBu_r",
-                cbar_kwargs={
-                    "orientation": "horizontal",
-                    "anchor": (1, 1),
-                    "fraction": 0.05,
-                    "pad": 0.04,
-                },
-            )
-
-        # add subplot titles
-        ax.set_title(plot_titles[i])
-
-        # set axes labels and make proportional
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_xlabel("")
-        ax.set_ylabel("")
-        ax.set_aspect("equal")
-
-        # add constraint locations as black x's
-        if constraints is not None:
-            if i in [2, 3, 4]:
-                ax.plot(
-                    constraints.easting,
-                    constraints.northing,
-                    "kx",
-                    markersize=kwargs.get("constraint_size", 4),
-                    markeredgewidth=1,
-                )
-
-    # add figure title
-    fig.suptitle(kwargs.get("title", " "), fontsize=24)
-
-    # delete blank extra subplot
-    fig.delaxes(axs[1, 2])
-
-    fig.tight_layout()
+            anom_grids.append(grid)
 
     # add grids and names to dictionary
     grid_dict = dict(zip(cols_to_grid, anom_grids))
 
-    if plot_dists is True:
-        # get column to include in plots
-        df = df_anomalies[cols_to_grid]
-        # reorganize
-        data = df.melt(var_name="gravity type")
-        # layout the subplot grid
-        g = sns.FacetGrid(
-            data, col="gravity type"
-        )  # , sharex=False, sharey=False)#, col_wrap=5)
-        # add histogram for each column
-        # g.map(sns.histplot, 'value', binwidth=1, kde=True,)
-        g.map(sns.kdeplot, "value", fill=True, bw_adjust=0.4)
-        # groupby to get mean and median
-        data_g = data.groupby("gravity type").agg(["mean", "median"])
-        # extract and flatten the axes from the figure
-        axes = g.axes.flatten()
+    # get RMSE value for misfit
+    rmse = inv_utils.RMSE(df.res)
 
-        # iterate through each axes
-        for ax in axes:
-            # extract the species name
-            grav_type = ax.get_title().split(" = ")[1]
-            # select the data for the species
-            d = data_g.loc[grav_type, :]
-            # plot the lines
-            ax.axvline(x=d.value["mean"], c="k", ls="-", lw=1.5, label="mean")
-            ax.axvline(x=d.value["median"], c="grey", ls="--", lw=1.5, label="median")
-            ax.legend(fontsize=8)
+    if plot_type == "pygmt":
+        _ = utils.grd_compare(
+            anom_grids[1],
+            anom_grids[3],
+            grid1_name="Gravity misfit",
+            grid2_name="Regional gravity",
+            cbar_label="mGal",
+            title="Residual gravity",
+            plot=True,
+            points=constraints,
+            plot_type="pygmt",
+            cmap="vik",
+            diff_cmap="vik+h0",
+            hist=True,
+            inset=False,
+            points_style="c.15c",
+            subplot_labels=True,
+            shp_mask=shp_mask,
+            robust=robust,
+            verbose="q",
+        )
 
-        # seperate plot of misfit components
-        df = df_anomalies[
-            [
-                "grav_corrected",
-                "forward_total",
-                "misfit",
-            ]
+    elif plot_type == "xarray":
+        # set titles for grids
+        plot_titles = [
+            "observed gravity (corr)",
+            "gravity misfit",
+            "forward gravity",
+            "regional misfit",
+            f"residual misfit: {round(rmse, 2)} mGal",
         ]
-        plt.figure()
-        sns.histplot(
-            data=df,
-            palette="viridis",
-            kde=True,
-            # stat='count',
-            multiple="stack",
-            element="step",
+
+        sub_width = 5
+        # nrows, ncols = utils.square_subplots(len(cols_to_grid))
+        nrows, ncols = 2, 3
+
+        # setup subplot figure
+        fig, axs = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(sub_width * ncols, sub_width * nrows),
         )
 
-    if plot_power_spectrums is True:
-        utils.raps(
-            df_anomalies,
-            ["misfit", "reg", "res"],
-            region=region,
-            spacing=grav_spacing,
-        )
+        grav_lims = utils.get_min_max(anom_grids[0], shp_mask)
+        forward_lims = utils.get_min_max(anom_grids[2], shp_mask)
+
+        if robust is True:
+            grav_lims = (
+                np.nanquantile(anom_grids[0], 0.02),
+                np.nanquantile(anom_grids[0], 0.98),
+            )
+            forward_lims = (
+                np.nanquantile(anom_grids[2], 0.02),
+                np.nanquantile(anom_grids[2], 0.98),
+            )
+
+        # get min and max of both grids together
+        misfit_vmin = min(grav_lims[0], forward_lims[0])
+        misfit_vmax = max(grav_lims[1], forward_lims[1])
+
+        for i, (col, ax) in enumerate(zip(cols_to_grid, axs.ravel())):
+            # plot each grid
+            if i in [0, 2]:
+                anom_grids[i].plot(
+                    ax=ax,
+                    x="x",
+                    y="y",
+                    cmap="RdBu_r",
+                    vmin=misfit_vmin,
+                    vmax=misfit_vmax,
+                    cbar_kwargs={
+                        "orientation": "horizontal",
+                        "anchor": (1, 1),
+                        "fraction": 0.05,
+                        "pad": 0.04,
+                    },
+                )
+            else:
+                if shp_mask is not None:
+                    maxabs = vd.maxabs(utils.get_min_max(anom_grids[i], shp_mask))
+                    vmin = -maxabs
+                    vmax = maxabs
+                elif shp_mask is None:
+                    vmin, vmax = None, None
+                anom_grids[i].plot(
+                    ax=ax,
+                    x="x",
+                    y="y",
+                    robust=robust,
+                    vmin=vmin,
+                    vmax=vmax,
+                    cmap="RdBu_r",
+                    cbar_kwargs={
+                        "orientation": "horizontal",
+                        "anchor": (1, 1),
+                        "fraction": 0.05,
+                        "pad": 0.04,
+                    },
+                )
+
+            # add subplot titles
+            ax.set_title(plot_titles[i])
+
+            # set axes labels and make proportional
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+            ax.set_aspect("equal")
+
+            # add constraint locations as black x's
+            if constraints is not None:
+                if i in [2, 3, 4]:
+                    ax.plot(
+                        constraints.easting,
+                        constraints.northing,
+                        "k.",
+                        markersize=kwargs.get("constraint_size", 1),
+                        markeredgewidth=1,
+                    )
+
+        # add figure title
+        fig.suptitle(kwargs.get("title", " "), fontsize=24)
+
+        # delete blank extra subplot
+        fig.delaxes(axs[1, 2])
+
+        # fig.tight_layout()
 
     return grid_dict
+
+
+def inputs_plotting(
+    df: pd.DataFrame,
+    layer: xr.DataArray,
+    robust: bool = True,
+    inversion_region: list = None,
+    buffer_region: list = None,
+    points: pd.DataFrame = None,
+    points_style: str = "c0.05c",
+    **kwargs,
+):
+    """
+    Plot inputs into the inversion
+    """
+
+    residual = df.set_index(["northing", "easting"]).to_xarray().res
+
+    grids = [residual, layer]
+
+    titles = ["Residual misfit", "Starting topography"]
+
+    for i, g in enumerate(grids):
+        if i == 0:
+            fig = None
+            origin_shift = "initialize"
+            cmap = "vik+h0"
+            cbar_unit = "mGal"
+            cbar_label = None
+            reverse_cpt = False
+        else:
+            origin_shift = "xshift"
+            cmap = "rain"
+            cbar_unit = "m"
+            cbar_label = "elevation"
+            reverse_cpt = True
+
+        fig = maps.plot_grd(
+            grid=g,
+            fig_height=9,
+            cmap=cmap,
+            reverse_cpt=reverse_cpt,
+            robust=robust,
+            region=buffer_region,
+            title=titles[i],
+            cbar_unit=cbar_unit,
+            cbar_label=cbar_label,
+            show_region=inversion_region,
+            hist=True,
+            cbar_yoffset=3,
+            # grd2cpt=True,
+            title_font="16p,Helvetica-bold,black",
+            fig=fig,
+            origin_shift=origin_shift,
+            points=points,
+            points_style=points_style,
+            shp_mask=kwargs.get("shp_mask", None),
+        )
+        fig.text(
+            position="TL",
+            justify="BL",
+            text=f"{string.ascii_lowercase[i]})",
+            font="18p,Helvetica,black",
+            offset="j0/.3",
+            no_clip=True,
+        )
+
+    return fig
 
 
 def grid_inversion_results(
@@ -856,7 +1098,10 @@ def plot_inversion_iteration_results(
     iterations,
     shp_mask=None,
     constraints=None,
-    constraint_size=4,
+    constraint_size=1,
+    topo_cmap_perc=1,
+    misfit_cmap_perc=1,
+    corrections_cmap_perc=1,
 ):
     misfit_grids, topo_grids, corrections_grids = grids
 
@@ -877,24 +1122,24 @@ def plot_inversion_iteration_results(
     corrections_lims = []
 
     for g in misfit_grids:
-        grid = g
-        misfit_lims.append(utils.get_min_max(grid, shp_mask))
+        misfit_lims.append(utils.get_min_max(g, shapefile=shp_mask))
     for g in topo_grids:
-        topo_lims.append(utils.get_min_max(g, shp_mask))
+        topo_lims.append(utils.get_min_max(g, shapefile=shp_mask))
     for g in corrections_grids:
-        grid = g
-        corrections_lims.append(utils.get_min_max(grid, shp_mask))
+        corrections_lims.append(utils.get_min_max(g, shapefile=shp_mask))
 
     misfit_min = min([i[0] for i in misfit_lims])
     misfit_max = max([i[1] for i in misfit_lims])
-    misfit_lim = vd.maxabs(misfit_min, misfit_max)
+    misfit_lim = vd.maxabs(misfit_min, misfit_max) * misfit_cmap_perc
 
-    topo_min = min([i[0] for i in topo_lims])
-    topo_max = max([i[1] for i in topo_lims])
+    topo_min = min([i[0] for i in topo_lims]) * topo_cmap_perc
+    topo_max = max([i[1] for i in topo_lims]) * topo_cmap_perc
 
     corrections_min = min([i[0] for i in corrections_lims])
     corrections_max = max([i[1] for i in corrections_lims])
-    corrections_lim = vd.maxabs(corrections_min, corrections_max)
+    corrections_lim = (
+        vd.maxabs(corrections_min, corrections_max) * corrections_cmap_perc
+    )
 
     for column, j in enumerate(grids):
         for row, y in enumerate(j):
@@ -918,33 +1163,42 @@ def plot_inversion_iteration_results(
             if column == 0:  # misfit grids
                 cmap = "RdBu_r"
                 lims = (-misfit_lim, misfit_lim)
+                # lims = (None, None)
                 # lims = (-vd.maxabs(j[0]) * perc, vd.maxabs(j[0]) * perc)
-                # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                # lims = utils.get_min_max(j[0], shapefile=shp_mask)
                 # maxabs = vd.maxabs(
-                # utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                # utils.get_min_max(j[0], shapefile=shp_mask)
                 # )
                 # lims = (-maxabs, maxabs)
-                robust = False
+                robust = True
+                # robust = False
+                norm = None
             elif column == 1:  # topography grids
                 cmap = "gist_earth"
                 lims = (topo_min, topo_max)
-                # robust=True
                 # lims = (-vd.maxabs(j[0]) * perc, vd.maxabs(j[0]) * perc)
-                # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
-                robust = False
+                # lims = utils.get_min_max(j[0], shapefile=shp_mask)
+                robust = True
+                # robust = False
+                norm = None
             elif column == 2:  # correction grids
                 cmap = "RdBu_r"
                 lims = (-corrections_lim, corrections_lim)
-                # lims = utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                # lims = (None, None)
+                # lims = utils.get_min_max(j[row], shapefile=shp_mask)
                 # maxabs = vd.maxabs(
-                #     utils.get_min_max(j[0], kwargs.get("shp_mask", None))
+                #     utils.get_min_max(j[row], shapefile=shp_mask)
                 # )
                 # lims = (-maxabs, maxabs)
-                robust = False
+                robust = True
+                # robust = False
+                # norm = mpl.colors.CenteredNorm(halfrange=corrections_lim, clip=True)
+                norm = None
             # plot grids
             j[row].plot(
                 ax=axes,
                 cmap=cmap,
+                norm=norm,
                 robust=robust,
                 vmin=lims[0],
                 vmax=lims[1],
@@ -975,7 +1229,7 @@ def plot_inversion_iteration_results(
                     axes.plot(
                         constraints.easting,
                         constraints.northing,
-                        "k+",
+                        "k.",
                         markersize=constraint_size,
                         markeredgewidth=1,
                     )
@@ -983,7 +1237,7 @@ def plot_inversion_iteration_results(
                     axes.plot(
                         constraints.easting,
                         constraints.northing,
-                        "r+",
+                        "k.",
                         markersize=constraint_size,
                         markeredgewidth=1,
                     )
@@ -991,7 +1245,7 @@ def plot_inversion_iteration_results(
                     axes.plot(
                         constraints.easting,
                         constraints.northing,
-                        "k+",
+                        "k.",
                         markersize=constraint_size,
                         markeredgewidth=1,
                     )
@@ -1006,9 +1260,9 @@ def plot_inversion_iteration_results(
     # add text with inversion parameter info
     text1, text2, text3 = [], [], []
     for i, (k, v) in enumerate(parameters.items(), start=1):
-        if i <= 4:
+        if i <= 6:
             text1.append(f"{k}: {v}\n")
-        elif i <= 9:
+        elif i <= 12:
             text2.append(f"{k}: {v}\n")
         else:
             text3.append(f"{k}: {v}\n")
@@ -1066,6 +1320,9 @@ def plot_inversion_topo_results(
     prisms_ds,
     shp_mask=None,
     constraints=None,
+    inversion_region=None,
+    topo_cmap_perc=1,
+    constraint_size=1,
 ):
     initial_topo = prisms_ds.surface
 
@@ -1076,24 +1333,110 @@ def plot_inversion_topo_results(
 
     final_topo = prisms_ds[f"iter_{max(its)}_layer"]
 
+    # crop grids to inversion region
+    if inversion_region is not None:
+        final_topo = final_topo.sel(
+            easting=slice(inversion_region[0], inversion_region[1]),
+            northing=slice(inversion_region[2], inversion_region[3]),
+        )
+        initial_topo = initial_topo.sel(
+            easting=slice(inversion_region[0], inversion_region[1]),
+            northing=slice(inversion_region[2], inversion_region[3]),
+        )
+
+    dif = initial_topo - final_topo
+
     if constraints is not None:
         constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
 
-    _ = utils.grd_compare(
-        initial_topo,
-        final_topo,
-        plot=True,
-        grid1_name="initial topography",
-        grid2_name="final topography",
-        plot_type="xarray",
-        cmap="gist_earth",
-        robust=False,
-        hist=True,
-        inset=False,
-        verbose="q",
-        title="difference",
-        shp_mask=shp_mask,
+    robust = True
+
+    topo_lims = []
+    for g in [initial_topo, final_topo]:
+        topo_lims.append(utils.get_min_max(g, shapefile=shp_mask))
+
+    topo_min = min([i[0] for i in topo_lims]) * topo_cmap_perc
+    topo_max = max([i[1] for i in topo_lims]) * topo_cmap_perc
+
+    # set figure parameters
+    sub_width = 5
+    nrows, ncols = 1, 3
+
+    # setup subplot figure
+    fig, ax = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(sub_width * ncols, sub_width * nrows),
     )
+
+    initial_topo.plot(
+        ax=ax[0],
+        robust=robust,
+        cmap="gist_earth",
+        vmin=topo_min,
+        vmax=topo_max,
+        cbar_kwargs={
+            "orientation": "horizontal",
+            "anchor": (1, 1),
+            "fraction": 0.05,
+            "pad": 0.04,
+        },
+    )
+    ax[0].set_title("initial topography")
+
+    dif.plot(
+        ax=ax[1],
+        robust=True,
+        cmap="RdBu_r",
+        cbar_kwargs={
+            "orientation": "horizontal",
+            "anchor": (1, 1),
+            "fraction": 0.05,
+            "pad": 0.04,
+        },
+    )
+    rmse = inv_utils.RMSE(dif)
+    ax[1].set_title(f"difference, RMSE: {round(rmse,2)}m")
+    if constraints is not None:
+        ax[1].plot(constraints.x, constraints.y, "k.", markersize=constraint_size)
+    final_topo.plot(
+        ax=ax[2],
+        robust=robust,
+        cmap="gist_earth",
+        vmin=topo_min,
+        vmax=topo_max,
+        cbar_kwargs={
+            "orientation": "horizontal",
+            "anchor": (1, 1),
+            "fraction": 0.05,
+            "pad": 0.04,
+        },
+    )
+    ax[2].set_title("final topography")
+
+    for a in ax:
+        a.set_xticklabels([])
+        a.set_yticklabels([])
+        a.set_xlabel("")
+        a.set_ylabel("")
+        a.set_aspect("equal")
+
+    fig.tight_layout()
+
+    # _ = utils.grd_compare(
+    #     initial_topo,
+    #     final_topo,
+    #     plot=True,
+    #     grid1_name="initial topography",
+    #     grid2_name="final topography",
+
+    #     plot_type="xarray",
+    #     cmap="gist_earth",
+    #     robust=robust,
+
+    #     title="difference",
+    #     shp_mask=shp_mask,
+    # )
 
 
 def plot_inversion_grav_results(
@@ -1162,11 +1505,25 @@ def plot_inversion_results(
     plot_grav_results=True,
     **kwargs,
 ):
-    # if results are given as filenames (strings), load into dataframes
+    # if results are given as filenames (strings), load them
     if isinstance(grav_results, str):
-        grav_results = pd.read_csv(grav_results)
+        grav_results = pd.read_csv(
+            grav_results,
+            sep=",",
+            header="infer",
+            index_col=None,
+            compression="gzip",
+        )
     if isinstance(topo_results, str):
-        topo_results = pd.read_csv(topo_results)
+        topo_results = pd.read_csv(
+            topo_results,
+            sep=",",
+            header="infer",
+            index_col=None,
+            compression="gzip",
+        )
+    if isinstance(parameters, str):
+        parameters = np.load(parameters, allow_pickle="TRUE").item()
 
     prisms_ds = topo_results.set_index(["northing", "easting"]).to_xarray()
 
@@ -1218,14 +1575,20 @@ def plot_inversion_results(
             iterations,
             shp_mask=kwargs.get("shp_mask", None),
             constraints=constraints,
-            constraint_size=kwargs.get("constraint_size", 4),
+            constraint_size=kwargs.get("constraint_size", 2),
+            topo_cmap_perc=kwargs.get("topo_cmap_perc", 1),
+            misfit_cmap_perc=kwargs.get("misfit_cmap_perc", 1),
+            corrections_cmap_perc=kwargs.get("corrections_cmap_perc", 1),
         )
 
     if plot_topo_results is True:
         plot_inversion_topo_results(
             prisms_ds,
             constraints=constraints,
+            inversion_region=grav_region,
             shp_mask=kwargs.get("shp_mask", None),
+            topo_cmap_perc=kwargs.get("topo_cmap_perc", 1),
+            constraint_size=kwargs.get("constraint_size", 2),
         )
 
     if plot_grav_results is True:
@@ -1312,60 +1675,47 @@ def plot_best_inversion(
     plot_iter_results=True,
     plot_topo_results=True,
     plot_grav_results=True,
+    plot_type="xarray",
+    robust=False,
     **kwargs,
 ):
     if best_params is None:
         best_params = optimization.get_best_params_from_study(study)
 
     with inv_utils.HiddenPrints():
-        prism_results, grav_results, params, elapsed_time = inv.geo_inversion(
+        results = inv.inversion_RMSE(
+            true_surface=true_surface,
+            constraints=constraint_points,
+            inversion_region=inversion_region,
+            plot=True,
+            plot_type=plot_type,
             input_grav=kwargs.get("input_grav"),
             input_grav_column=kwargs.get("input_grav_column"),
             prism_layer=kwargs.get("prism_layer"),
             max_iterations=kwargs.get("max_iterations"),
             l2_norm_tolerance=kwargs.get("l2_norm_tolerance"),
             delta_l2_norm_tolerance=kwargs.get("delta_l2_norm_tolerance"),
-            max_layer_change_per_iter=best_params.get("max_layer_change_per_iter"),
-            deriv_type=best_params.get("deriv_type"),
-            solver_type=best_params.get("solver_type"),
-            solver_damping=[
-                v for k, v in best_params.items() if "damping" in k.lower()
-            ][0],
+            max_layer_change_per_iter=kwargs.get(
+                "max_layer_change_per_iter",
+                best_params.get("max_layer_change_per_iter"),
+            ),
+            deriv_type=kwargs.get("deriv_type", best_params.get("derive_type")),
+            solver_type=kwargs.get("solver_type", best_params.get("solver_type")),
+            solver_damping=10
+            ** [v for k, v in best_params.items() if "damping" in k.lower()][0],
+            apply_weights=kwargs.get("apply_weights"),
+            weights_after_solving=kwargs.get("weights_after_solving"),
+            robust=robust,
         )
 
-    # grid resulting prisms
-    ds = (
-        prism_results.rename(columns={"easting": "x", "northing": "y"})
-        .set_index(["y", "x"])
-        .to_xarray()
-    )
-
-    # subset the inversion region
-    ds_inner = ds.sel(
-        x=slice(inversion_region[0], inversion_region[1]),
-        y=slice(inversion_region[2], inversion_region[3]),
-    )
-
-    # get last iteration's layer result
-    cols = [s for s in prism_results.columns.to_list() if "_layer" in s]
-
-    final_surface = ds_inner[cols[-1]]
-
-    diff_grids = utils.grd_compare(
-        true_surface,
-        final_surface,
-        grid1_name="True",
-        grid2_name="Final",
-        region=inversion_region,
-        plot=True,
-        plot_type="xarray",
-        # cmap='batlowW',
-        cmap="gist_earth",
-        robust=True,
-        points=constraint_points.rename(columns={"easting": "x", "northing": "y"}),
-        hist=True,
-        inset=False,
-    )
+    (
+        rmse,
+        prism_results,
+        grav_results,
+        params,
+        elapsed_time,
+        constraints_rmse,
+    ) = results
 
     _ = plot_inversion_results(
         grav_results,
@@ -1381,15 +1731,8 @@ def plot_best_inversion(
     )
 
     if constraint_points is not None:
-        constraints = profile.sample_grids(
-            df=constraint_points,
-            grid=diff_grids[0],
-            name="surface_difference",
-            coord_names=("easting", "northing"),
-        )
         print(
-            f"RMSE between surfaces at constraints: "
-            f"{round(inv_utils.RMSE(constraints.surface_difference), 2)} m"
+            f"RMSE between surfaces at constraints: " f"{round(constraints_rmse,2)} m"
         )
 
 
@@ -1481,41 +1824,43 @@ def combined_importance(
     """
     target_names = target_names.copy()
     figs = []
-    for i, j in enumerate(target_names):
-        f = optuna.visualization.plot_param_importances(
-            study,
-            target=lambda t: t.values[i],
-            target_name=j,
-            params=params,
-        )
-        figs.append(f)
-
-    if include_duration is True and "duration" not in target_names:
-        f = optuna.visualization.plot_param_importances(
-            study,
-            target=lambda t: t.duration.total_seconds(),
-            target_name="duration",
-            params=params,
-        )
-        figs.append(f)
-        target_names.append("duration")
-
-    # Create figure
-    fig = plotly.graph_objects.Figure()
-
-    # Add traces
-    for i, j in enumerate(target_names):
-        fig.add_trace(
-            plotly.graph_objects.Bar(
-                x=figs[i].data[0]["x"],
-                y=figs[i].data[0]["y"],
-                name=j,
-                orientation="h",
+    try:
+        for i, j in enumerate(target_names):
+            f = optuna.visualization.plot_param_importances(
+                study,
+                target=lambda t: t.values[i],
+                target_name=j,
+                params=params,
             )
-        )
+            figs.append(f)
+        if include_duration is True and "duration" not in target_names:
+            f = optuna.visualization.plot_param_importances(
+                study,
+                target=lambda t: t.duration.total_seconds(),
+                target_name="duration",
+                params=params,
+            )
+            figs.append(f)
+            target_names.append("duration")
 
-    fig.update_layout(xaxis_title="Importance", title="Hyperparameter Importance")
+        # Create figure
+        fig = plotly.graph_objects.Figure()
 
+        # Add traces
+        for i, j in enumerate(target_names):
+            fig.add_trace(
+                plotly.graph_objects.Bar(
+                    x=figs[i].data[0]["x"],
+                    y=figs[i].data[0]["y"],
+                    name=j,
+                    orientation="h",
+                )
+            )
+
+        fig.update_layout(xaxis_title="Importance", title="Hyperparameter Importance")
+    except ValueError:
+        print("can't display parameter importances with dynamic search space")
+        fig = None
     return fig
 
 
@@ -1599,12 +1944,17 @@ def plot_optuna_inversion_figures(
     study,
     target_names,
     include_duration=False,
+    params=None,
+    seperate_param_importances=False,
 ):
     combined_history(
         study,
         target_names,
         include_duration=include_duration,
     ).show()
+
+    if params is None:
+        params = [k for k, v in study.get_trials()[0].params.items()]
 
     for i, j in enumerate(target_names):
         optuna.visualization.plot_slice(
@@ -1618,22 +1968,36 @@ def plot_optuna_inversion_figures(
             target_name="Execution time",
         ).show()
 
-    combined_importance(
-        study,
-        target_names,
-        params=[
-            "deriv_type",
-            "verde_damping",
-        ],
-        include_duration=include_duration,
-    ).show()
+    if len(params) <= 1:
+        pass
+    else:
+        try:
+            if seperate_param_importances is True:
+                combined_importance(
+                    study,
+                    target_names,
+                    params=[
+                        "deriv_type",
+                        "verde_damping",
+                    ],
+                    include_duration=include_duration,
+                ).show()
 
-    combined_importance(
-        study,
-        target_names,
-        params=["deriv_type", "scipy_damping"],
-        include_duration=include_duration,
-    ).show()
+                combined_importance(
+                    study,
+                    target_names,
+                    params=["deriv_type", "scipy_damping"],
+                    include_duration=include_duration,
+                ).show()
+            else:
+                combined_importance(
+                    study,
+                    target_names,
+                    params=params,
+                    include_duration=include_duration,
+                ).show()
+        except AttributeError:
+            print("issue with showing importance figure")
 
     combined_edf(study, target_names, include_duration=include_duration).show()
 

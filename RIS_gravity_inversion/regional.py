@@ -7,33 +7,31 @@ import xarray as xr
 from antarctic_plots import profile
 
 import RIS_gravity_inversion.inversion as inv
+import RIS_gravity_inversion.utils as inv_utils
 
 
 def regional_trend(
     trend: int,
     misfit_grid: xr.DataArray,
     anomalies: pd.DataFrame,
-    fill_method: str = "rioxarray",
-    crs: str = None,
+    fill_method: str = "verde",
 ):
     """
     seperate the regional field with a trend
     """
-    # fill misfit nans with 1 of 2 methods
-    if fill_method == "pygmt":
-        misfit_filled = pygmt.grdfill(misfit_grid, mode="n").rename("grav")
-    elif fill_method == "rioxarray":
-        misfit_grid = misfit_grid.rio.write_crs(crs)
-        misfit_filled = (
-            misfit_grid.rio.write_nodata(np.nan).rio.interpolate_na().rename("grav")
-        )
-    else:
-        raise ValueError("invalid string for fill_method")
+    # get coordinate names
+    original_dims = misfit_grid.dims
+
+    misfit_filled = inv_utils.nearest_grid_fill(misfit_grid, method=fill_method)
 
     df = vd.grid_to_table(misfit_filled).astype("float64")
-
-    trend = vd.Trend(degree=trend).fit((df.x, df.y.values), df.grav)
-    anomalies["reg"] = trend.predict((anomalies.easting, anomalies.northing))
+    trend = vd.Trend(degree=trend).fit(
+        (df[original_dims[1]], df[original_dims[0]].values),
+        df[misfit_filled.name],
+    )
+    anomalies["reg"] = trend.predict(
+        (anomalies[original_dims[1]], anomalies[original_dims[0]])
+    )
 
     return anomalies
 
@@ -47,22 +45,26 @@ def regional_filter(
     """
     seperate the regional field with a low-pass filter
     """
+    # get coordinate names
+    original_dims = misfit_grid.dims
 
     # filter the observed-forward misfit with the provided filter in meters
-    regional_misfit = pygmt.grdfilter(
+    regional_misfit = inv_utils.filter_grid(
         misfit_grid,
-        filter=filter_width,
-        distance="0",
-        registration=registration,
+        float(filter_width[1:]),
+        filt_type="lowpass",
     )
+
     # sample the results and merge into the anomalies dataframe
     tmp_regrid = pygmt.grdtrack(
-        points=anomalies[["easting", "northing"]],
+        points=anomalies[[original_dims[1], original_dims[0]]],
         grid=regional_misfit,
         newcolname="reg",
         verbose="q",
     )
-    anomalies = anomalies.merge(tmp_regrid, on=["easting", "northing"], how="left")
+    anomalies = anomalies.merge(
+        tmp_regrid, on=[original_dims[1], original_dims[0]], how="left"
+    )
 
     return anomalies
 
@@ -75,14 +77,17 @@ def regional_constraints(
     spacing: float,
     tension_factor: float = 1,
     registration: str = "g",
-    block_reduce=False,
+    constraint_block_size=None,
     grid_method="pygmt",
     dampings=np.logspace(-6, 3, num=10),
     mindists=np.linspace(1e3, 100e3, 10),
+    delayed=True,
 ):
     """
     seperate the regional field by sampling and regridding at the constraint points
     """
+    # get coordinate names
+    original_dims = misfit_grid.dims
 
     constraints_df = constraint_points.copy()
 
@@ -91,14 +96,18 @@ def regional_constraints(
         df=constraints_df,
         grid=misfit_grid,
         name="misfit",
-        coord_names=("easting", "northing"),
+        coord_names=(original_dims[1], original_dims[0]),
+        no_skip=True,
+        verbose="q",
     )
 
-    if block_reduce is True:
-        # get median misfit of constraint points in each 1km cell
+    constraints_df = constraints_df[constraints_df.misfit.notna()]
+
+    if constraint_block_size is not None:
+        # get median misfit of constraint points in each cell
         constraints_df = pygmt.blockmedian(
-            data=constraints_df[["easting", "northing", "misfit"]],
-            spacing=spacing,
+            data=constraints_df[[original_dims[1], original_dims[0], "misfit"]],
+            spacing=constraint_block_size,
             region=region,
             registration=registration,
         )
@@ -106,7 +115,7 @@ def regional_constraints(
     # grid the entire region misfit based just on the misfit at the constraints
     if grid_method == "pygmt":
         regional_misfit = pygmt.surface(
-            data=constraints_df[["easting", "northing", "misfit"]],
+            data=constraints_df[[original_dims[1], original_dims[0], "misfit"]],
             region=region,
             spacing=spacing,
             registration=registration,
@@ -114,16 +123,55 @@ def regional_constraints(
             verbose="q",
         )
     elif grid_method == "verde":
+        # spline = vd.Spline()
         spline = vd.SplineCV(
             dampings=dampings,
             mindists=mindists,
-            delayed=True,
+            delayed=delayed,
         )
         spline.fit(
-            (constraints_df.easting, constraints_df.northing),
+            (constraints_df[original_dims[1]], constraints_df[original_dims[0]]),
             constraints_df.misfit,
         )
+
         regional_misfit = spline.grid(region=region, spacing=spacing).scalars
+
+    elif grid_method == "eq_sources":
+        coords = (
+            constraints_df[original_dims[1]],
+            constraints_df[original_dims[0]],
+            constraints_df.upward,
+        )
+        #         dampings = [.001, .01, .05, .1]
+        #         depths = [10e3, 30e3, 60e3, 90e3]
+        #         parameter_sets = [
+        #             dict(damping=combo[0], depth=combo[1])
+        #             for combo in itertools.product(dampings, depths)
+        #         ]
+        #         eqs_best, regional_misfit, reg_df = inv_utils.eq_sources_best(
+        #             parameter_sets = parameter_sets,
+        #             coordinates = coords,
+        #             data = constraints_df.misfit,
+        #             region = region,
+        #             spacing = spacing,
+        #         )
+        study_df, eqs = inv_utils.optimize_eq_source_params(
+            coords,
+            constraints_df.misfit,
+            n_trials=20,
+            damping_limits=[0.0005, 0.01],
+            depth_limits=[60e3, 150e3],
+            plot=False,
+            parallel=True,
+        )
+        # Define grid coordinates
+        grid_coords = vd.grid_coordinates(
+            region=region,
+            spacing=spacing,
+            extra_coords=coords[2].max(),
+        )
+        # predict sources onto grid to get regional
+        regional_misfit = eqs.grid(grid_coords, data_names="pred").pred
     else:
         raise ValueError("invalid string for grid_method")
 
@@ -132,7 +180,8 @@ def regional_constraints(
         df=anomalies,
         grid=regional_misfit,
         name="reg",
-        coord_names=("easting", "northing"),
+        coord_names=(original_dims[1], original_dims[0]),
+        verbose="q",
     )
 
     return anomalies
@@ -145,6 +194,7 @@ def regional_eq_sources(
     block_size: float = None,
     depth_type: str = "relative",
     input_misfit_name: str = "misfit",
+    input_coord_names: list = ["easting", "northing"],
 ):
     """
     seperate the regional field by estimating deep equivalent sources
@@ -153,6 +203,8 @@ def regional_eq_sources(
     block_size : float: block reduce the data to speed up
     depth_type : str: constant depths, not relative to observation heights
     """
+
+    df = anomalies[anomalies[input_misfit_name].notna()]
     # create set of deep sources
     equivalent_sources = hm.EquivalentSources(
         depth=source_depth,
@@ -162,20 +214,19 @@ def regional_eq_sources(
     )
 
     # fit the source coefficients to the data
-    coordinates = (anomalies.easting, anomalies.northing, anomalies.upward)
-    equivalent_sources.fit(coordinates, anomalies[input_misfit_name])
+    coordinates = (df[input_coord_names[0]], df[input_coord_names[1]], df.upward)
+    equivalent_sources.fit(coordinates, df[input_misfit_name])
 
     # use sources to predict the regional field at the observation points
-    anomalies["reg"] = equivalent_sources.predict(coordinates)
+    df["reg"] = equivalent_sources.predict(coordinates)
 
-    return anomalies
+    return df
 
 
 def regional_seperation(
     input_grav: pd.DataFrame,
     grav_spacing: int,
     regional_method: str,
-    crs: str = "3031",
     registration="g",
     **kwargs,
 ):
@@ -206,14 +257,16 @@ def regional_seperation(
     # get kwargs associated with the various methods
     trend = kwargs.get("trend", None)
     filter = kwargs.get("filter", None)
-    tension_factor = kwargs.get("tension_factor", 0.25)
+    tension_factor = kwargs.get("tension_factor", None)
     eq_sources = kwargs.get("eq_sources", None)
 
     df = kwargs.get("constraints", None)
     if df is not None:
         constraints = df.copy()
+    else:
+        constraints = None
 
-    anomalies = input_grav.copy()
+    anomalies = input_grav[input_grav[input_grav_column].notna()]
 
     # if anomalies already calculated, drop the columns
     try:
@@ -226,15 +279,17 @@ def regional_seperation(
         input_grav=anomalies,
         input_forward_column=input_forward_column,
         input_grav_column=input_grav_column,
+        constraints=constraints,
     )
 
     # grid misfit
-    misfit_grid = pygmt.xyz2grd(
-        data=anomalies[["easting", "northing", "misfit"]],
-        region=inversion_region,
-        spacing=grav_spacing,
-        registration=registration,
-    )
+    misfit_grid = anomalies.set_index(["northing", "easting"]).to_xarray().misfit
+    # misfit_grid = pygmt.xyz2grd(
+    #     data=anomalies[["easting", "northing", "misfit"]],
+    #     region=inversion_region,
+    #     spacing=grav_spacing,
+    #     registration=registration,
+    # )
 
     if regional_method == "trend":
         anomalies = regional_trend(
@@ -242,7 +297,6 @@ def regional_seperation(
             misfit_grid,
             anomalies,
             fill_method=kwargs.get("fill_method", "rioxarray"),
-            crs=crs,
         )
     elif regional_method == "filter":
         anomalies = regional_filter(
@@ -253,20 +307,23 @@ def regional_seperation(
         )
     elif regional_method == "constraints":
         anomalies = regional_constraints(
-            constraints,
-            tension_factor,
-            misfit_grid,
-            anomalies,
-            inversion_region,
-            grav_spacing,
+            constraint_points=constraints,
+            misfit_grid=misfit_grid,
+            anomalies=anomalies,
+            region=inversion_region,
+            spacing=grav_spacing,
+            tension_factor=tension_factor,
             registration=registration,
-            block_reduce=False,
+            constraint_block_size=kwargs.get("constraint_block_size"),
+            grid_method=kwargs.get("grid_method", "pygmt"),
+            dampings=kwargs.get("dampings", np.logspace(-6, 3, num=2)),
+            mindists=kwargs.get("mindists", np.linspace(1e3, 100e3, 2)),
+            delayed=kwargs.get("delayed", True),
         )
     elif regional_method == "eq_sources":
         anomalies = regional_eq_sources(
-            eq_sources,
-            misfit_grid,
-            anomalies,
+            source_depth=eq_sources,
+            anomalies=anomalies,
             eq_damping=kwargs.get("eq_damping", None),
             block_size=kwargs.get("block_size", None),
             depth_type=kwargs.get("depth_type", "relative"),
@@ -277,5 +334,8 @@ def regional_seperation(
 
     # calculate the residual field
     anomalies["res"] = anomalies.misfit - anomalies.reg
+
+    # mask regional based on residual
+    anomalies["reg"] = anomalies.reg.mask(anomalies.res.isnull())
 
     return anomalies
