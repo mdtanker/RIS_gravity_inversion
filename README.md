@@ -13,12 +13,17 @@ Install the required dependencies with either `conda` or `mamba` with the enviro
 
     cd RIS_gravity_inversion
 
-    make install
+    make conda_install
 
 Activate the newly created environment:
 
     conda activate RIS_gravity_inversion
 
+Install the local project
+
+    make install
+
+    
 If you get errors related to the PyProj EPSG database, try the following:
 
     mamba install -c conda-forge proj-data --force-reinstall -y

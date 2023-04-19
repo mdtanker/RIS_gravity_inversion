@@ -23,10 +23,12 @@ dependencies:
   # - cmocean
   - numba
   - optuna
+  - botorch<0.8.0
   - plotly
   - hvplot
   - jupyter_bokeh
   - jupyterlab
+  - jupyterlab_execute_time
   - isort
   - pytest
   - pytest-cov

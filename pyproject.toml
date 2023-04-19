@@ -45,10 +45,13 @@ dependencies = [
     "tqdm-joblib",
     "jupyter-server-proxy",
     "trame",
-    "constrained-linear-regression",
-]
+    "pykdtree",
 
 [project.optional-dependencies]
+optional_regressions = [
+    "constrained-linear-regression",
+    
+    ]
 
 [project.urls]
 repository = "https://github.com/mdtanker/RIS_gravity_inversion"
