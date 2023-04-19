@@ -64,6 +64,7 @@ def test_regional_trend(test_input):
     assert np.max(df.reg) < np.max(df.misfit)
     assert np.min(df.reg) > np.min(df.misfit)
 
+
 def test_regional_filter():
     """
     test the regional_filter function
@@ -141,5 +142,6 @@ def test_regional_eq_sources():
     # test  whether regional field has been remove correctly
     # by whether the regional values are close the the grav values at the constraints
     assert reg_range < misfit_range * 0.9
+
 
 # %%

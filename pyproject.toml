@@ -46,11 +46,12 @@ dependencies = [
     "jupyter-server-proxy",
     "trame",
     "pykdtree",
+]
 
 [project.optional-dependencies]
 optional_regressions = [
     "constrained-linear-regression",
-    
+
     ]
 
 [project.urls]
