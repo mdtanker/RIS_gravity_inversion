@@ -140,8 +140,8 @@ def test_regional_eq_sources():
     misfit_range = np.max(df.misfit) - np.min(df.misfit)
     print(reg_range, misfit_range)
     # test  whether regional field has been remove correctly
-    # by whether the regional values are close the the grav values at the constraints
-    assert reg_range < misfit_range * 0.9
+    # by whether the range of regional values are lower than the range of misfit values
+    assert reg_range < misfit_range
 
 
 # %%

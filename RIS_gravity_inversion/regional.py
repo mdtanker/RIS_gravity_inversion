@@ -79,9 +79,9 @@ def regional_constraints(
     registration: str = "g",
     constraint_block_size=None,
     grid_method="pygmt",
-    dampings=np.logspace(-6, 3, num=10),
-    mindists=np.linspace(1e3, 100e3, 10),
-    delayed=True,
+    dampings=None,
+    delayed=False,
+    constraint_weights_col=None,
 ):
     """
     seperate the regional field by sampling and regridding at the constraint points
@@ -123,25 +123,30 @@ def regional_constraints(
             verbose="q",
         )
     elif grid_method == "verde":
-        # spline = vd.Spline()
-        spline = vd.SplineCV(
+        if dampings is None:
+            dampings = list(np.logspace(-10, -2, num=9))
+            dampings.append(None)
+
+        spline = inv_utils.best_SplineCV(
+            coordinates=(
+                constraints_df[original_dims[1]],
+                constraints_df[original_dims[0]],
+            ),
+            data=constraints_df.misfit,
+            weights=constraints_df[constraint_weights_col],
             dampings=dampings,
-            mindists=mindists,
             delayed=delayed,
-        )
-        spline.fit(
-            (constraints_df[original_dims[1]], constraints_df[original_dims[0]]),
-            constraints_df.misfit,
         )
 
         regional_misfit = spline.grid(region=region, spacing=spacing).scalars
 
     elif grid_method == "eq_sources":
-        coords = (
-            constraints_df[original_dims[1]],
-            constraints_df[original_dims[0]],
-            constraints_df.upward,
-        )
+        pass
+        # coords = (
+        #     constraints_df[original_dims[1]],
+        #     constraints_df[original_dims[0]],
+        #     constraints_df.upward,
+        # )
         #         dampings = [.001, .01, .05, .1]
         #         depths = [10e3, 30e3, 60e3, 90e3]
         #         parameter_sets = [
@@ -155,23 +160,23 @@ def regional_constraints(
         #             region = region,
         #             spacing = spacing,
         #         )
-        study_df, eqs = inv_utils.optimize_eq_source_params(
-            coords,
-            constraints_df.misfit,
-            n_trials=20,
-            damping_limits=[0.0005, 0.01],
-            depth_limits=[60e3, 150e3],
-            plot=False,
-            parallel=True,
-        )
-        # Define grid coordinates
-        grid_coords = vd.grid_coordinates(
-            region=region,
-            spacing=spacing,
-            extra_coords=coords[2].max(),
-        )
-        # predict sources onto grid to get regional
-        regional_misfit = eqs.grid(grid_coords, data_names="pred").pred
+        # study_df, eqs = inv_utils.optimize_eq_source_params(
+        #     coords,
+        #     constraints_df.misfit,
+        #     n_trials=20,
+        #     damping_limits=[0.0005, 0.01],
+        #     depth_limits=[60e3, 150e3],
+        #     plot=False,
+        #     parallel=True,
+        # )
+        # # Define grid coordinates
+        # grid_coords = vd.grid_coordinates(
+        #     region=region,
+        #     spacing=spacing,
+        #     extra_coords=coords[2].max(),
+        # )
+        # # predict sources onto grid to get regional
+        # regional_misfit = eqs.grid(grid_coords, data_names="pred").pred
     else:
         raise ValueError("invalid string for grid_method")
 
@@ -296,7 +301,7 @@ def regional_seperation(
             trend,
             misfit_grid,
             anomalies,
-            fill_method=kwargs.get("fill_method", "rioxarray"),
+            fill_method=kwargs.get("fill_method", "pygmt"),
         )
     elif regional_method == "filter":
         anomalies = regional_filter(
@@ -316,9 +321,9 @@ def regional_seperation(
             registration=registration,
             constraint_block_size=kwargs.get("constraint_block_size"),
             grid_method=kwargs.get("grid_method", "pygmt"),
-            dampings=kwargs.get("dampings", np.logspace(-6, 3, num=2)),
-            mindists=kwargs.get("mindists", np.linspace(1e3, 100e3, 2)),
-            delayed=kwargs.get("delayed", True),
+            dampings=kwargs.get("dampings", None),
+            delayed=kwargs.get("delayed", False),
+            constraint_weights_col=kwargs.get("constraint_weights_col", None),
         )
     elif regional_method == "eq_sources":
         anomalies = regional_eq_sources(

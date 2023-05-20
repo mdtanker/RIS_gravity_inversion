@@ -1,4 +1,6 @@
 import math
+import pathlib
+import pickle
 import warnings
 
 import joblib
@@ -6,6 +8,7 @@ import numpy as np
 import optuna
 import pandas as pd
 import psutil
+import xarray as xr
 from tqdm_joblib import tqdm_joblib
 
 import RIS_gravity_inversion.inversion as inv
@@ -333,6 +336,44 @@ class optimal_regional_params:
         return rmse
 
 
+class optimal_regional_eq_sources_params:
+    def __init__(
+        self,
+        damping_limits,
+        depth_limits,
+        **kwargs,
+    ):
+        self.damping_limits = damping_limits
+        self.depth_limits = depth_limits
+        self.kwargs = kwargs
+
+    def __call__(self, trial):
+        # define parameter space
+        damping = trial.suggest_float(
+            "damping",
+            self.damping_limits[0],
+            self.damping_limits[1],
+        )
+        depth = trial.suggest_float(
+            "depth",
+            self.depth_limits[0],
+            self.depth_limits[1],
+        )
+        # run regional seperations and return RMSE based on comparison method.
+        with inv_utils.HiddenPrints():
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Engine 'cfgrib'")
+                rmse, df = inv_utils.regional_seperation_quality(
+                    param=depth,
+                    eq_damping=damping,
+                    regional_method="eq_sources",
+                    comparison_method="regional_comparison",
+                    **self.kwargs,
+                )
+
+        return rmse
+
+
 class optimal_eq_source_params:
     def __init__(
         self,
@@ -367,6 +408,187 @@ class optimal_eq_source_params:
             data=self.data,
             **self.kwargs,
         )
+
+        return score
+
+
+class CV_inversion:
+    def __init__(
+        self,
+        training_data,
+        testing_data,
+        fname,
+        true_surface=None,
+        l2_norm_limits=None,
+        l2_norm_step=0.01,
+        weights_exponent_limits=None,
+        weights_exponent_step=None,
+        starting_prisms=None,
+        constraints=None,
+        inversion_region=None,
+        layer_spacing=None,
+        damping_limits=None,  # will be 10^lim, with lim as integers
+        damping_step=0.1,
+        weights_grid_kwargs=None,
+        inversion_kwargs=None,
+        **kwargs,
+    ):
+        self.fname = fname
+        self.true_surface = true_surface
+        self.training_data = training_data
+        self.testing_data = testing_data
+        self.damping_limits = damping_limits
+        self.damping_step = damping_step
+        self.weights_exponent_limits = weights_exponent_limits
+        self.starting_prisms = starting_prisms
+        self.constraints = constraints
+        self.weights_exponent_step = weights_exponent_step
+        self.layer_spacing = layer_spacing
+        self.l2_norm_limits = l2_norm_limits
+        self.l2_norm_step = l2_norm_step
+        self.weights_grid_kwargs = weights_grid_kwargs
+        self.inversion_kwargs = inversion_kwargs
+        self.kwargs = kwargs
+
+    def __call__(self, trial):
+        # define parameter space
+
+        if self.damping_limits is None:
+            solver_damping = self.kwargs.get("solver_damping")
+        else:
+            exp = trial.suggest_float(
+                "damping",
+                self.damping_limits[0],
+                self.damping_limits[1],
+                step=self.damping_step,
+            )
+            solver_damping = 10**exp
+
+        if self.weights_exponent_limits is None:
+            assert self.starting_prisms is not None
+        else:
+            weights_exponent = trial.suggest_float(
+                "weights_exponent",
+                self.weights_exponent_limits[0],
+                self.weights_exponent_limits[1],
+                step=self.weights_exponent_step,
+            )
+            # re-create the weights grid
+            weights = inv_utils.normalized_mindist(
+                self.constraints,
+                self.starting_prisms.drop("weights"),
+                mindist=self.layer_spacing / np.sqrt(2),
+                low=0,
+                high=1,
+                **self.weights_grid_kwargs,
+            )
+            weights = weights**weights_exponent
+
+            self.starting_prisms["weights"] = weights
+
+        if self.l2_norm_limits is None:
+            l2_norm_tolerance = self.inversion_kwargs.get("l2_norm_tolerance")
+        else:
+            l2_norm_tolerance = trial.suggest_float(
+                "l2_norm_tolerance",
+                self.l2_norm_limits[0],
+                self.l2_norm_limits[1],
+                step=self.l2_norm_step,
+            )
+
+        # run inversion and return RMSE between true and starting layer
+        with inv_utils.HiddenPrints():
+            (
+                rmse,
+                prism_results,
+                grav_results,
+                params,
+                elapsed_time,
+                constraints_rmse,
+            ) = inv.inversion_RMSE(
+                self.true_surface,
+                input_grav=self.training_data,
+                prism_layer=self.starting_prisms,
+                plot=False,
+                solver_damping=solver_damping,
+                l2_norm_tolerance=l2_norm_tolerance,
+                **{
+                    k: v
+                    for k, v in self.inversion_kwargs.items()
+                    if k not in ["l2_norm_tolerance"]
+                },
+            )
+
+        results = dict(
+            rmse=rmse,
+            prism_results=prism_results,
+            grav_results=grav_results,
+            params=params,
+            elapsed_time=elapsed_time,
+            constraints_rmse=constraints_rmse,
+        )
+
+        # save results into each trial
+        trial.set_user_attr("true_surface_RMSE", rmse)
+        trial.set_user_attr("elapsed_time", elapsed_time)
+        trial.set_user_attr("constraints_rmse", constraints_rmse)
+
+        # remove if exists
+        pathlib.Path(f"{self.fname}_trial_{trial.number}_results.pickle").unlink(
+            missing_ok=True
+        )
+
+        # save results to pickle dataframes
+        with open(f"{self.fname}_trial_{trial.number}_results.pickle", "wb") as fout:
+            pickle.dump(results, fout)
+
+        # grid resulting prisms dataframe
+        prism_ds = prism_results.set_index(["northing", "easting"]).to_xarray()
+
+        # get last iteration's layer result
+        cols = [s for s in prism_results.columns.to_list() if "_layer" in s]
+        final_surface = prism_ds[cols[-1]]
+
+        # set reference as un-inverted surface mean
+        zref = prism_ds.surface.values.mean()
+        # zref = prisms_ds.top.values.min()
+
+        # set density contrast
+        density_contrast = prism_ds.density.values.max()
+
+        assert zref == prism_ds.top.values.min()
+        assert zref == prism_ds.bottom.values.max()
+        assert prism_ds.density.values.max() == -prism_ds.density.values.min()
+
+        # create new prism layer
+        prism_layer = inv_utils.grids_to_prisms(
+            surface=final_surface,
+            reference=zref,
+            density=xr.where(
+                final_surface >= zref, density_contrast, -density_contrast
+            ),
+        )
+
+        # calculate forward gravity of prisms on testing points
+        grav_grid, grav_df = inv_utils.forward_grav_of_prismlayer(
+            [prism_layer],
+            self.testing_data,
+            names=["test_point_grav"],
+            remove_median=False,
+            progressbar=False,
+            plot=False,
+        )
+
+        # compare new forward with observed
+        observed = (
+            self.testing_data[self.kwargs.get("input_grav_column")]
+            - self.testing_data.reg
+        )
+        predicted = grav_df.test_point_grav
+
+        dif = predicted - observed
+
+        score = inv_utils.RMSE(dif)
 
         return score
 

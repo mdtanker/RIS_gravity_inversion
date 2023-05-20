@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import itertools
 import os
 import pathlib
 import pickle
@@ -9,6 +10,7 @@ import warnings
 from getpass import getpass
 from typing import Union
 
+import dask
 import geopandas as gpd
 import harmonica as hm
 import matplotlib.pyplot as plt
@@ -16,6 +18,7 @@ import numpy as np
 import optuna
 import pandas as pd
 import pygmt
+import scipy as sp
 import seaborn as sns
 import verde as vd
 import xarray as xr
@@ -36,52 +39,381 @@ from RIS_gravity_inversion import optimization, plotting, regional
 load_dotenv()
 
 
-def bedmachine_buffer_points(
-    buffer_width=10e3,
-    bedmachine_bed=None,
+def constraint_layout(
+    num_constraints,
+    shift_stdev,
+    region=None,
+    shapefile=None,
     plot=False,
 ):
-    # get RIS mask
-    measures_shelves = fetch.measures_boundaries(version="IceShelf")
-    ice_shelves = gpd.read_file(measures_shelves)
-    RIS_seperate = ice_shelves[ice_shelves.NAME.isin(["Ross_West", "Ross_East"])]
-    RIS = RIS_seperate.dissolve()
+    if shapefile is not None:
+        bounds = gpd.read_file(shapefile).bounds
+        region = [bounds.minx, bounds.maxx, bounds.miny, bounds.maxy]
+        region = [x.values[0] for x in region]
 
-    # get buffer RIS mask
-    RIS_buffer = RIS.buffer(buffer_width)
+    x = region[1] - region[0]
+    y = region[3] - region[2]
+    num_y = int(np.ceil((num_constraints / (x / y)) ** 0.5))
 
-    # mask bedmachine bed inside of RIS
-    bedmachine_masked = (
-        utils.mask_from_shp(
-            shapefile=RIS,
-            xr_grid=bedmachine_bed,
-            masked=True,
+    fudge_factor = 0
+    while True:
+        num_x = int(np.ceil(num_constraints / num_y)) + fudge_factor
+
+        # create regular grid, with set number of constrait points
+        reg = vd.pad_region(region, -15e3)
+        x = np.linspace(reg[0], reg[1], int(num_x * 1.1))
+        y = np.linspace(reg[2], reg[3], int(num_y * 1.1))
+        coords = np.meshgrid(x, y)
+
+        # turn coordinates into dataarray
+        da = vd.make_xarray_grid(
+            coords,
+            data=np.ones_like(coords[0]) * 1e3,
+            data_names="upward",
+            dims=("northing", "easting"),
         )
-        .rename({"x": "easting", "y": "northing"})
-        .rename("upward")
+        # turn dataarray into dataframe
+        df = vd.grid_to_table(da)
+
+        # add randomness to the points
+        rand = np.random.default_rng(seed=0)
+        constraints = df.copy()
+        constraints["northing"] = rand.normal(df.northing, shift_stdev)
+        constraints["easting"] = rand.normal(df.easting, shift_stdev)
+
+        # check whether points are inside or outside of shp
+        if shapefile is not None:
+            gdf = gpd.GeoDataFrame(
+                constraints,
+                geometry=gpd.points_from_xy(
+                    x=constraints.easting, y=constraints.northing
+                ),
+                crs="EPSG:3031",
+            )
+            constraints["inside"] = gdf.within(
+                gpd.read_file("../data/Ross_Sea_outline.shp").geometry[0]
+            )
+            constraints.drop(columns="geometry", inplace=True)
+        else:
+            constraints["inside"] = True
+
+        # ensure all points are within region
+        constraints = utils.points_inside_region(
+            constraints, region, names=("easting", "northing")
+        )
+
+        # keep only set number of constraints
+        try:
+            constraints = constraints[constraints.inside].sample(
+                n=num_constraints, random_state=0
+            )
+        except ValueError:
+            fudge_factor += 0.1
+        else:
+            break
+
+    if plot:
+        fig = maps.basemap(
+            fig_height=8,
+            region=region,
+        )
+
+        fig.plot(
+            x=constraints.easting,
+            y=constraints.northing,
+            style="c.1c",
+            fill="black",
+        )
+
+        if shapefile is not None:
+            fig.plot(
+                shapefile,
+                pen="0.2p,black",
+            )
+
+        fig.show()
+
+    return constraints
+
+
+def best_SplineCV(
+    coordinates,
+    data,
+    weights=None,
+    dampings=None,
+    delayed=False,
+):
+    if isinstance(dampings, (float, int)):
+        dampings = [dampings]
+    # if dampings is None:
+    #     dampings = list(np.logspace(-10, -2, num=9))
+    #     dampings.append(None)
+
+    spline = vd.SplineCV(
+        dampings=dampings,
+        delayed=delayed,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", sp.linalg.LinAlgWarning)
+        with HiddenPrints():
+            spline.fit(
+                coordinates,
+                data,
+                weights=weights,
+            )
+
+    try:
+        print("Highest score:", spline.scores_.max())
+    except AttributeError:
+        print("Highest score:", max(dask.compute(spline.scores_)[0]))
+
+    print("Best damping:", spline.damping_)
+
+    try:
+        if len(dampings) > 2:
+            if spline.damping_ in [np.min(dampings), np.max(dampings)]:
+                warnings.warn(
+                    f"Warning: best damping parameter ({spline.damping_}) for "
+                    "verde.SplineCV() is at the limit of provided values "
+                    f"({np.nanmin(dampings), np.nanmax(dampings)}) and thus is likely "
+                    f"not a global minimum, expand the range of values with 'dampings'"
+                )
+    except TypeError:
+        pass
+
+    return spline
+
+
+def resample_gravity_with_test_points(
+    grav_df,
+    grav_column,
+    coord_columns,
+    starting_training_spacing,
+    coarse_training_spacing,
+    region,
+    n_trials=10,
+    optimization=True,
+    dampings=None,
+    depths=None,
+    plot=False,
+    log_fname="tmp",
+):
+    """
+    take a gravity dataframe, resample to lower resolution, re-grid at full resolution
+    with eq-sources, split data into training and testing sets.
+    """
+
+    df = grav_df.copy()
+
+    df.drop(columns=df.columns.difference([grav_column] + coord_columns), inplace=True)
+    # resample to coarse spacing
+    sampled_grav = resample_with_test_points(
+        data_spacing=coarse_training_spacing,
+        data=df,
+        region=region,
     )
 
+    df = sampled_grav[~sampled_grav.test]
+    coords = [df[x] for x in coord_columns]
+    data = df[grav_column]
+
+    ####
+    # start of grid search method
+    ####
+    if optimization is False:
+        if dampings is None:
+            dampings = list(np.logspace(-10, 10, num=9))
+            dampings.insert(0, None)
+
+        if depths is None:
+            depths = np.linspace(1e3, 100e3, 10)
+
+        print(dampings)
+        print(depths)
+        parameter_sets = [
+            dict(damping=combo[0], depth=combo[1])
+            for combo in itertools.product(dampings, depths)
+        ]
+
+        eqs_best, Gobs_survey, grav_survey_eqs = eq_sources_best(
+            parameter_sets=parameter_sets,
+            coordinates=coords,
+            data=data,
+            region=region,
+            spacing=starting_training_spacing / 2,  # at half spacing to testing points
+            block_size=starting_training_spacing,
+        )
+        score = None
+    ####
+    # end of grid search method
+    ####
+    ####
+    # start of optuna method
+    ####
+    elif optimization is True:
+        # increment log file name until one doesn't exist
+        i = 0
+        fname = log_fname
+        while os.path.exists(f"{fname}.log"):
+            fname = log_fname + str(i)
+            i += 1
+
+        study_df, eqs = optimize_eq_source_params(
+            coords,
+            data,
+            n_trials=n_trials,
+            damping_limits=dampings,
+            depth_limits=depths,
+            sampler=None,
+            parallel=False,
+            fname=fname,
+            use_existing=False,
+            plot=plot,
+            eq_kwargs=dict(block_size=starting_training_spacing),
+        )
+
+        grid_coords = vd.grid_coordinates(
+            region=region,
+            spacing=starting_training_spacing / 2,
+            extra_coords=coords[2].max(),
+        )
+        # predict sources onto grid to get regional
+        Gobs_survey = eqs.grid(grid_coords, data_names="pred").pred
+
+        # get score
+        score = study_df.iloc[0].value
+
+    ####
+    # end of optuna method
+    ####
+
+    resampled_grav = vd.grid_to_table(Gobs_survey.rename(grav_column))
+
+    resampled_grav = resample_with_test_points(
+        data_spacing=starting_training_spacing,
+        data=resampled_grav,
+        region=region,
+    )
+
+    # add upward coord back
+    resampled_grav[coord_columns[2]] = grav_df[coord_columns[2]]
+
+    if plot:
+        resampled_grid = (
+            resampled_grav[~resampled_grav.test]
+            .set_index([coord_columns[1], coord_columns[0]])
+            .to_xarray()[grav_column]
+        )
+        full_grid = (
+            grav_df[~grav_df.test]
+            .set_index([coord_columns[1], coord_columns[0]])
+            .to_xarray()[grav_column]
+        )
+        (resampled_grid - full_grid).plot()
+
+    return resampled_grav, score
+
+
+def resample_with_test_points(
+    data_spacing,
+    data,
+    region,
+):
+    """
+    take a dataframe of coordinates and make all rows that fall on the data_spacing
+    grid training points. Add rows at each point which falls on the grid points of
+    half the data_spacing, assign these with label "test". If other data is present
+    in dataframe, will sample at each new location.
+    """
+    # create coords for full data
+    coords = vd.grid_coordinates(
+        region=region,
+        spacing=data_spacing / 2,
+        pixel_register=False,
+    )
+
+    # turn coordinates into dataarray
+    full_points = vd.make_xarray_grid(
+        (coords[0], coords[1]),
+        data=np.ones_like(coords[0]),
+        data_names="tmp",
+        dims=("northing", "easting"),
+    )
+    # turn dataarray in dataframe
+    full_df = vd.grid_to_table(full_points).drop(columns="tmp")
+    # set all points to test
+    full_df["test"] = True
+
+    # subset training points, every other value
+    train_df = full_df[
+        (full_df.easting.isin(full_points.easting.values[::2]))
+        & (full_df.northing.isin(full_points.northing.values[::2]))
+    ].copy()
+    # set training points to not be test points
+    train_df["test"] = False
+
+    # merge training and testing dfs
+    df = full_df.set_index(["northing", "easting"])
+    df.update(train_df.set_index(["northing", "easting"]))
+    df.reset_index(inplace=True)
+
+    df["test"] = df.test.astype(bool)
+
+    grid = data.set_index(["northing", "easting"]).to_xarray()
+    for i in list(grid):
+        if i == "test":
+            pass
+        else:
+            df[i] = profile.sample_grids(
+                df,
+                grid[i],
+                i,
+                coord_names=("easting", "northing"),
+            )[i].astype(data[i].dtype)
+
+    # test with this, using same input spacing as original
+    # pd.testing.assert_frame_equal(df, full_res_grav, check_like=True,)
+
+    return df
+
+
+def inversion_buffer_points(
+    buffer_width=10e3,
+    grid=None,
+    mask=None,
+    plot=False,
+):
+    # get buffer RIS mask
+    mask_buffer = mask.buffer(buffer_width)
+
+    # mask grid inside of mask
+    grid_masked = utils.mask_from_shp(
+        shapefile=mask,
+        xr_grid=grid,
+        masked=True,
+    ).rename("upward")
+
     # mask bedmachine bed outside of buffered RIS
-    bedmachine_masked_buffer = utils.mask_from_shp(
-        shapefile=RIS_buffer,
-        xr_grid=bedmachine_masked,
+    grid_masked_buffer = utils.mask_from_shp(
+        shapefile=mask_buffer,
+        xr_grid=grid_masked,
         masked=True,
         invert=False,
     ).rename("upward")
 
     # create dataframes from grids
-    bedmachine_df_outside = vd.grid_to_table(bedmachine_masked).dropna()
-    bedmachine_df_buffer = vd.grid_to_table(bedmachine_masked_buffer).dropna()
+    grid_df_outside = vd.grid_to_table(grid_masked).dropna()
+    grid_df_buffer = vd.grid_to_table(grid_masked_buffer).dropna()
 
     if plot is True:
         grav.plotly_points(
-            bedmachine_df_buffer,
+            grid_df_buffer,
             color_col="upward",
             robust=True,
             point_size=4,
         )
 
-    return bedmachine_df_buffer, bedmachine_df_outside, bedmachine_masked
+    return grid_df_buffer, grid_df_outside, grid_masked
 
 
 def create_starting_bed(
@@ -90,17 +422,47 @@ def create_starting_bed(
     masked_bed,
     region,
     spacing,
-    icebase,
+    weights=None,
+    icebase=None,
     plot=False,
 ):
     points = pd.concat((buffer_points, inside_constraints))
 
-    grd = vd.Spline(mindist=1e-5, damping=None)
     coords = (points.easting, points.northing)
+    data = points.upward
 
-    grd.fit(coords, points.upward)
+    spline = vd.Spline(
+        damping=1e-20,
+    )
+    spline.fit(
+        coords,
+        data,
+        weights=weights,
+    )
 
-    inner_bed = grd.grid(
+    # num = 5
+    # if weights is None:
+    #     damp_num = num -1
+    # else: damp_num = num
+
+    # dampings = list(np.logspace(-20, 0, num=damp_num))
+    # mindists = np.linspace(1e-5, 1e3, num)
+
+    # if weights is None:
+    #     dampings.insert(0, None)
+
+    # with warnings.catch_warnings():
+    #     warnings.simplefilter("ignore", sp.linalg.LinAlgWarning)
+    #     spline = best_SplineCV(
+    #         coordinates = coords,
+    #         data = data,
+    #         weights = weights,
+    #         dampings = dampings,
+    #         mindists = mindists,
+    #         delayed=True,
+    #     )
+
+    inner_bed = spline.grid(
         region=region,
         spacing=spacing,
     ).scalars
@@ -112,11 +474,12 @@ def create_starting_bed(
     )
 
     # ensure bed doesn't cross ice base
-    bed_from_constraints = xr.where(
-        bed_from_constraints > icebase,
-        icebase,
-        bed_from_constraints,
-    )
+    if icebase is not None:
+        bed_from_constraints = xr.where(
+            bed_from_constraints > icebase,
+            icebase,
+            bed_from_constraints,
+        )
 
     if plot is True:
         fig = maps.plot_grd(
@@ -293,35 +656,51 @@ def recalculate_partial_bouguer_anomalies(
 
 def recreate_bed(
     constraints,
-    bed_buffer_points,
     region,
     spacing,
-    icebase,
+    bed_buffer_points=None,
+    weights=None,
+    icebase=None,
 ):
-    # bed inside RIS masked
-    masked_bed = (
-        constraints[~constraints.inside]
-        .set_index(["northing", "easting"])
-        .to_xarray()
-        .upward
-    )
+    if bed_buffer_points is None:
+        spline = best_SplineCV(
+            coordinates=(constraints.easting, constraints.northing),
+            data=constraints.upward,
+            weights=weights,
+            dampings=[10**-20],
+            delayed=False,
+        )
+        starting_bed = spline.grid(
+            region=region,
+            spacing=spacing,
+        ).scalars
 
-    # points within buffer zone
-    buffer_points = pd.merge(
-        constraints.reset_index(),
-        bed_buffer_points[["northing", "easting"]],
-        how="inner",
-    ).set_index("index")
+    else:
+        # bed inside RIS masked
+        masked_bed = (
+            constraints[~constraints.inside]
+            .set_index(["northing", "easting"])
+            .to_xarray()
+            .upward
+        )
 
-    # create starting bathymetry
-    starting_bed = create_starting_bed(
-        buffer_points=buffer_points,
-        inside_constraints=constraints[constraints.inside],
-        masked_bed=masked_bed,
-        region=region,
-        spacing=spacing,
-        icebase=icebase,
-    )
+        # points within buffer zone
+        buffer_points = pd.merge(
+            constraints.reset_index(),
+            bed_buffer_points[["northing", "easting"]],
+            how="inner",
+        ).set_index("index")
+
+        # create starting bathymetry
+        starting_bed = create_starting_bed(
+            buffer_points=buffer_points,
+            inside_constraints=constraints[constraints.inside],
+            masked_bed=masked_bed,
+            region=region,
+            spacing=spacing,
+            icebase=icebase,
+            weights=weights,
+        )
 
     return starting_bed
 
@@ -338,14 +717,17 @@ def recalc_bed_grav(
     density = sediment_density - water_density
     starting_bed_prisms = grids_to_prisms(
         surface=starting_bed,
-        reference=starting_bed.values.mean(),
-        density=xr.where(starting_bed >= starting_bed.values.mean(), density, -density),
+        reference=np.nanmean(starting_bed.values),
+        density=xr.where(
+            starting_bed >= np.nanmean(starting_bed.values), density, -density
+        ),
         input_coord_names=["easting", "northing"],
     )
     bed_grav_grid, bed_grav_df = forward_grav_of_prismlayer(
         [starting_bed_prisms],
         grav[grav.Gobs.notna()],
         names=["bed_prisms"],
+        removed_median=False,
         progressbar=False,
         plot=False,
     )
@@ -354,7 +736,7 @@ def recalc_bed_grav(
     return grav, starting_bed_prisms
 
 
-def monte_carlo_inversion_uncertainty_loop(
+def monte_carlo_full_workflow_uncertainty_loop(
     fname,
     runs,
     grav,
@@ -391,11 +773,11 @@ def monte_carlo_inversion_uncertainty_loop(
         starting_run = 0
 
     if starting_run == runs:
-        print("all runs already complete, loading results from file.")
+        print(f"all {runs} runs already complete, loading results from file.")
     for i in tqdm(range(starting_run, runs)):
         if i == starting_run:
             print(
-                f"starting Monte Carlo uncertainty analysis at run {starting_run} of"
+                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
                 f"{runs}\nsaving results to {fname}\n"
             )
 
@@ -514,7 +896,7 @@ def monte_carlo_inversion_uncertainty_loop(
             verbose = "q"
 
         # run inversion
-        topo, results = monte_carlo_inversion_uncertainty(
+        topo, results = monte_carlo_full_workflow_uncertainty(
             constraints=constraint_points,
             gravity_df=gravity_df,
             recalculate_bouguer_anomalies=recalculate_bouguer_anomalies,
@@ -559,7 +941,7 @@ def monte_carlo_inversion_uncertainty_loop(
 
         print(f"Finished inversion {i+1} of {runs}")
 
-    # load pickle file
+    # load pickle files
     params = []
     with open(f"{fname[:-5]}_params.pickle", "rb") as file:
         while 1:
@@ -585,12 +967,235 @@ def monte_carlo_inversion_uncertainty_loop(
     # get final gravity residual RMSE of each model
     residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
 
+    # convert residuals into weights
+    weights = [1 / (x**2) for x in residuals]
+
     # load dataset with all the topo models
     topos = xr.open_zarr(fname)
 
     # get stats on the ensemble
-    stats = model_ensemble_stats(topos, weights=residuals)
-    merged, z_mean, z_stdev, weighted_mean, weighted_stdev = stats
+    stats = model_ensemble_stats(topos, weights=weights)
+    merged, z_mean, z_stdev, weighted_mean, weighted_stdev, z_min, z_max = stats
+
+    if plot is True:
+        grd = weighted_stdev
+        if mask is not None:
+            grd = utils.mask_from_shp(
+                shapefile=mask, xr_grid=grd, masked=True, invert=False
+            )
+        fig = maps.plot_grd(
+            grd,
+            cmap="inferno",
+            reverse_cpt=True,
+            robust=True,
+            hist=True,
+            cbar_label="weighted standard deviation (m)",
+            title=title,
+        )
+        fig.plot(
+            x=constraints.easting,
+            y=constraints.northing,
+            fill="black",
+            style="c.01c",
+        )
+        fig.plot(
+            x=constraints[constraints.inside].easting,
+            y=constraints[constraints.inside].northing,
+            fill="white",
+            pen=".3p,black",
+            style="c.08c",
+            label="Bed constraints",
+        )
+        fig.legend()
+        fig.show()
+
+    return topos, params, values, grav_dfs
+
+
+def monte_carlo_inversion_uncertainty_loop(
+    fname,
+    runs,
+    grav,
+    constraints,
+    sample_grav=False,
+    sample_constraints=False,
+    sample_water_density=False,
+    sample_sediment_density=False,
+    inversion_args=None,
+    sampled_args=None,
+    starting_args=None,
+    plot=False,
+    mask=None,
+    title="Monte Carlo simulation",
+    **kwargs,
+):
+    # if file exists, start and next run, else start at 0
+    try:
+        topos = xr.open_zarr(fname)
+        starting_run = len(topos)
+    except FileNotFoundError:
+        print(f"File {fname} not found, creating new file\n")
+        # create / overwrite pickle files
+        with open(f"{fname[:-5]}_params.pickle", "wb") as _:
+            pass
+        with open(f"{fname[:-5]}_sampled_values.pickle", "wb") as _:
+            pass
+        with open(f"{fname[:-5]}_grav_dfs.pickle", "wb") as _:
+            pass
+        starting_run = 0
+
+    if starting_run == runs:
+        print(f"all {runs} runs already complete, loading results from file.")
+    for i in tqdm(range(starting_run, runs)):
+        if i == starting_run:
+            print(
+                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
+                f"{runs}\nsaving results to {fname}\n"
+            )
+
+        # create random generator
+        rand = np.random.default_rng(seed=i)
+
+        recalculate_starting_bed = False
+        recalculate_bed_gravity = False
+        recalculate_regional = False
+
+        sampled_args = {}
+
+        # if gravity resampled, must recalculate misfit and regional
+        if sample_grav is True:
+            sampled_grav = grav.copy()
+            Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
+            sampled_grav["Gobs"] = Gobs_sampled
+            gravity_df = sampled_grav.copy()
+            recalculate_regional = True
+        elif sample_grav is False:
+            gravity_df = grav.copy()
+
+        # if constraints resampled, must recalculate starting bed,
+        # recalculate bed gravity, and recalculate regional
+        if sample_constraints is True:
+            sampled_constraints = constraints.drop(columns="upward").copy()
+            sampled_constraints["upward"] = rand.uniform(
+                sampled_constraints.low_lim, sampled_constraints.high_lim
+            )
+            constraint_points = sampled_constraints.copy()
+            recalculate_starting_bed = True
+            recalculate_bed_gravity = True
+            recalculate_regional = True
+        elif sample_constraints is False:
+            constraint_points = constraints.copy()
+
+        # if water density resampled, must recalculate bed gravity and regional
+        if sample_water_density is True:
+            sampled_args["water_density"] = rand.normal(
+                starting_args.get("water_density"), 5
+            )
+            recalculate_bed_gravity = True
+            recalculate_regional = True
+        elif sample_water_density is False:
+            sampled_args["water_density"] = starting_args.get("water_density")
+
+        # if sediment density resampled, must recalculate bed gravity and regional
+        if sample_sediment_density is True:
+            sampled_args["sediment_density"] = rand.normal(
+                starting_args.get("sediment_density"), 400
+            )
+            recalculate_bed_gravity = True
+            recalculate_regional = True
+        elif sample_sediment_density is False:
+            sampled_args["sediment_density"] = starting_args.get("sediment_density")
+
+        if recalculate_starting_bed is True:
+            recalculate_bed_gravity = True
+            recalculate_regional = True
+        if recalculate_bed_gravity is True:
+            recalculate_regional = True
+
+        if i == starting_run:
+            verbose = None
+        else:
+            verbose = "q"
+
+        # run inversion
+        topo, results = monte_carlo_inversion_uncertainty(
+            constraints=constraint_points,
+            gravity_df=gravity_df,
+            recalculate_starting_bed=recalculate_starting_bed,
+            recalculate_bed_gravity=recalculate_bed_gravity,
+            recalculate_regional=recalculate_regional,
+            inversion_args=inversion_args,
+            sampled_args=sampled_args,
+            verbose=verbose,
+            **kwargs,
+        )
+
+        # rename grid with run number
+        topo = topo.to_dataset(name=f"run_{i}")
+
+        if i == 0:
+            mode = "w"
+        else:
+            mode = "a"
+
+        enc = {x: {"compressor": zarr.Blosc()} for x in topo}
+        topo.to_zarr(
+            fname,
+            encoding=enc,
+            mode=mode,
+        )
+
+        # get gravity data
+        grav_df = results[1]
+
+        # get parameters
+        params = results[2]
+
+        # save parameters
+        with open(f"{fname[:-5]}_params.pickle", "ab") as file:
+            pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(f"{fname[:-5]}_sampled_values.pickle", "ab") as file:
+            pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(f"{fname[:-5]}_grav_dfs.pickle", "ab") as file:
+            pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print(f"Finished inversion {i+1} of {runs}")
+
+    # load pickle files
+    params = []
+    with open(f"{fname[:-5]}_params.pickle", "rb") as file:
+        while 1:
+            try:
+                params.append(pickle.load(file))
+            except EOFError:
+                break
+    values = []
+    with open(f"{fname[:-5]}_sampled_values.pickle", "rb") as file:
+        while 1:
+            try:
+                values.append(pickle.load(file))
+            except EOFError:
+                break
+    grav_dfs = []
+    with open(f"{fname[:-5]}_grav_dfs.pickle", "rb") as file:
+        while 1:
+            try:
+                grav_dfs.append(pickle.load(file))
+            except EOFError:
+                break
+
+    # get final gravity residual RMSE of each model
+    residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
+
+    # convert residuals into weights
+    weights = [1 / (x**2) for x in residuals]
+
+    # load dataset with all the topo models
+    topos = xr.open_zarr(fname)
+
+    # get stats on the ensemble
+    stats = model_ensemble_stats(topos, weights=weights)
+    merged, z_mean, z_stdev, weighted_mean, weighted_stdev, z_min, z_max = stats
 
     if plot is True:
         grd = weighted_stdev
@@ -641,8 +1246,10 @@ def model_ensemble_stats(
     )
 
     z_mean = merged["run_num"].mean("runs").rename("z_mean")
-
+    z_min = merged["run_num"].min("runs").rename("z_min")
+    z_max = merged["run_num"].max("runs").rename("z_maxn")
     z_stdev = merged["run_num"].std("runs").rename("z_std")
+    # z_var = merged["run_num"].var("runs").rename("z_var")
 
     if weights is not None:
         assert len(da_list) == len(weights)
@@ -658,11 +1265,21 @@ def model_ensemble_stats(
     else:
         weighted_mean = None
         weighted_stdev = None
+        # weighted_var = None
 
-    return merged, z_mean, z_stdev, weighted_mean, weighted_stdev
+    return (
+        merged,
+        z_mean,
+        z_stdev,
+        weighted_mean,
+        weighted_stdev,
+        z_min,
+        z_max,
+        # z_var, weighted_var,
+    )
 
 
-def monte_carlo_inversion_uncertainty(
+def monte_carlo_full_workflow_uncertainty(
     constraints,
     gravity_df,
     recalculate_bouguer_anomalies=False,
@@ -833,6 +1450,124 @@ def monte_carlo_inversion_uncertainty(
             input_grav=anomalies,
             prism_layer=starting_bed_prisms,
             solver_damping=sampled_args.get("solver_damping"),
+            **inversion_args,
+        )
+
+    # get final topography
+    final_topo = (
+        results[0]
+        .set_index(["northing", "easting"])
+        .to_xarray()[results[0].columns[-1]]
+    )
+
+    return final_topo, results
+
+
+def monte_carlo_inversion_uncertainty(
+    constraints,
+    gravity_df,
+    recalculate_starting_bed=False,
+    recalculate_bed_gravity=False,
+    recalculate_regional=False,
+    inversion_args=None,
+    sampled_args=None,
+    verbose=None,
+    **kwargs,
+):
+    """
+    Run all portions of the inversion workflow which rely on constraints or gravity and
+    return the resulting inverted bathymetry.
+
+    to include layer densities in the MC analysis provide densities and grids in
+    `forward_grav_args` else, column `Gobs_corr` must be in gravity dataframe
+
+    to include constraints in the MC analysis, provide "constraint_args", else,
+    starting_bed must be provided and "bef_forward" must be in the gravity dataframe
+
+    to include gravity data in the MC analysis, provide "gravity_args", else,
+    """
+
+    grav = gravity_df.copy()
+
+    # re-create starting bed
+    if recalculate_starting_bed is False:
+        starting_bed = kwargs.get("starting_bed", None)
+    else:
+        # recalculate the starting bed with the provided constraints
+        if verbose != "q":
+            print("Recalculating starting bed")
+        with HiddenPrints():
+            starting_bed = recreate_bed(
+                constraints=constraints,
+                bed_buffer_points=kwargs.get("bed_buffer_points", None),
+                region=kwargs.get("buffer_region"),
+                spacing=kwargs.get("layer_spacing"),
+                icebase=kwargs.get("icebase_lowres", None),
+                weights=kwargs.get("constraint_weights_col", None),
+            )
+        recalculate_bed_gravity = True
+
+    # recalculate bed gravity
+    if recalculate_bed_gravity is False:
+        assert all(item in grav.columns for item in ["bed_forward"]), (
+            "if recalculate_bed_gravity is False, 'bed_forward' must be in gravity"
+            "dataframe"
+        )
+        starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
+        if starting_bed_prisms is None:
+            raise TypeError(
+                (
+                    "If recalculate_bed_gravity is False, must "
+                    "provide prisms layer with `starting_bed_prisms`"
+                )
+            )
+    else:
+        if verbose != "q":
+            print("Recalculating bed gravity")
+        grav.drop(
+            columns=["bed_forward", "misfit", "reg", "res"],
+            inplace=True,
+            errors="ignore",
+        )
+        with HiddenPrints():
+            grav, starting_bed_prisms = recalc_bed_grav(
+                gravity=grav,
+                starting_bed=starting_bed,
+                water_density=sampled_args.get("water_density"),
+                sediment_density=sampled_args.get("sediment_density"),
+            )
+    # recalculate regional seperation
+    if recalculate_regional is False:
+        assert all(item in grav.columns for item in ["Gobs_shift", "res"]), (
+            "if recalculate_regional is False, 'Gobs_shift'"
+            " and 'res' must be in gravity dataframe"
+        )
+        anomalies = grav
+    else:
+        if verbose != "q":
+            print("Recalculating regional field")
+        grav.drop(columns=["res", "reg", "misfit"], inplace=True, errors="ignore")
+        with HiddenPrints():
+            anomalies = regional.regional_seperation(
+                input_grav=grav,
+                grav_spacing=kwargs.get("grav_spacing"),
+                regional_method="constraints",
+                constraints=constraints,
+                input_forward_column="bed_forward",
+                input_grav_column="Gobs",
+                inversion_region=kwargs.get("inversion_region"),
+                grid_method="verde",
+                dampings=kwargs.get("dampings"),
+                constraint_weights_col=kwargs.get("constraints_weights_col"),
+            )
+    # add weights grid to starting prisms
+    starting_bed_prisms["weights"] = kwargs.get("weights_grid")
+
+    # run inversion
+    with HiddenPrints():
+        results = inv.geo_inversion(
+            input_grav=anomalies,
+            prism_layer=starting_bed_prisms,
             **inversion_args,
         )
 
@@ -1197,10 +1932,14 @@ def fetch_private_github_file(
     return os.path.abspath(out_file)
 
 
-def RMSE(data):
-    """calculate the RMSE of data."""
-    return np.sqrt(np.nanmedian(data**2).item())
-    # return np.sqrt(np.nanmean(data**2).item())
+# function to give RMSE of data
+def RMSE(data, as_median=False):
+    if as_median:
+        rmse = np.sqrt(np.nanmedian(data**2).item())
+    else:
+        rmse = np.sqrt(np.nanmean(data**2).item())
+
+    return rmse
 
 
 def nearest_grid_fill(
@@ -1251,7 +1990,7 @@ def nearest_grid_fill(
 
 def filter_grid(
     grid,
-    filter_width,
+    filter_width=None,
     filt_type="lowpass",
     change_spacing=False,
 ):
@@ -1291,6 +2030,12 @@ def filter_grid(
         filt = hm.gaussian_lowpass(padded, wavelength=filter_width).rename("filt")
     elif filt_type == "highpass":
         filt = hm.gaussian_highpass(padded, wavelength=filter_width).rename("filt")
+    elif filt_type == "up_deriv":
+        filt = hm.derivative_upward(padded).rename("filt")
+    elif filt_type == "easting_deriv":
+        filt = hm.derivative_easting(padded).rename("filt")
+    elif filt_type == "northing_deriv":
+        filt = hm.derivative_northing(padded).rename("filt")
     else:
         raise ValueError("filt_type must be 'lowpass' or 'highpass'")
 
@@ -1418,7 +2163,7 @@ def weight_grid(
                 df = vd.grid_to_table(weights)
                 region = vd.get_region((df[original_dims[1]], df[original_dims[0]]))
                 df.dropna(how="any", inplace=True)
-                grd = vd.Spline(mindist=1e-5, damping=None)
+                grd = vd.Spline(damping=None)
                 grd.fit((df[original_dims[1]], df[original_dims[0]]), df.min_dist)
                 weights = grd.grid(region=region, shape=weights.shape).scalars
 
@@ -1443,7 +2188,7 @@ def weight_grid(
                 df = vd.grid_to_table(close_to_nans_weights)
                 region = vd.get_region((df[original_dims[1]], df[original_dims[0]]))
                 df.dropna(how="any", inplace=True)
-                grd = vd.Spline(mindist=1e-5, damping=None)
+                grd = vd.Spline(damping=None)
                 grd.fit((df[original_dims[1]], df[original_dims[0]]), df.min_dist)
                 close_to_nans_weights = grd.grid(
                     region=region, shape=close_to_nans_weights.shape
@@ -1467,6 +2212,60 @@ def weight_grid(
         )
 
     return weights.rename("weights")
+
+
+def normalized_mindist(
+    points: pd.DataFrame,
+    grid: Union[xr.DataArray, xr.Dataset],
+    low: float = None,
+    high: float = None,
+    mindist=None,
+    region: list = None,
+):
+    """
+    Find the minimum distance between each grid cell and the nearest point. If low and
+    high are provided, normalize the min dists grid between these values. If region is
+    provided, all grid cells outside region are set to a distance of 0.
+    """
+    grid = copy.deepcopy(grid)
+
+    # if a dataset supplied, use first variable as a dataarray
+    if isinstance(grid, xr.Dataset):
+        grid = grid[list(grid.variables.keys())[0]]
+
+    # get coordinate names
+    original_dims = list(grid.sizes.keys())
+
+    constraint_points = points.copy()
+
+    min_dist = dist_nearest_points(
+        targets=constraint_points,
+        data=grid,
+        coord_names=(original_dims[1], original_dims[0]),
+    ).min_dist
+
+    # set points < mindist to 0
+    if mindist is not None:
+        min_dist = xr.where(min_dist < mindist, 0, min_dist)
+
+    # set points outside of region to 0
+    if region is not None:
+        df = vd.grid_to_table(min_dist)
+        df["are_inside"] = vd.inside(
+            (df[original_dims[1]], df[original_dims[0]]),
+            region=region,
+        )
+        min_dist = df.set_index([original_dims[0], original_dims[1]]).to_xarray()
+        min_dist = xr.where(min_dist.are_inside, min_dist, 0)
+        min_dist = min_dist.min_dist
+
+    # normalize from low to high
+    if (low is None) & (high is None):
+        pass
+    else:
+        min_dist = normalize_xarray(min_dist, low=low, high=high)
+
+    return min_dist
 
 
 def constraints_grid(
@@ -1504,6 +2303,17 @@ def constraints_grid(
         data=grid,
         coord_names=(original_dims[1], original_dims[0]),
     ).min_dist
+
+    # set points outside of region to 0
+    if region is not None:
+        df = vd.grid_to_table(min_dist)
+        df["are_inside"] = vd.inside(
+            (df[original_dims[1]], df[original_dims[0]]),
+            region=region,
+        )
+        min_dist = df.set_index([original_dims[0], original_dims[1]]).to_xarray()
+        min_dist = xr.where(min_dist.are_inside, min_dist, 0)
+        min_dist = min_dist.min_dist
 
     weights = weight_grid(
         min_dist,
@@ -1562,8 +2372,8 @@ def prep_grav_data(
     prep gravity dataframe to expected format for other functions. We use the same
     conventions as Harmonca, 'easting' and 'northing' for the horizontal coordinates,
     and 'upward' for the vertical coordinate, all in meters. We use 'Gobs' to denote the
-     observed gravity, whether its a free-air anomaly, gravity disturbance, or raw
-     measured gravity.
+    observed gravity, whether its a free-air anomaly, gravity disturbance, or raw
+    measured gravity.
     """
 
     # set standard column names
@@ -1746,6 +2556,27 @@ def eq_sources_best_param(parameter_sets, coordinates, data, **kwargs):
     print("Best score:", scores[best])
     print("Best parameters:", parameter_sets[best])
 
+    dampings = [p["damping"] for p in parameter_sets]
+    depths = [p["depth"] for p in parameter_sets]
+
+    try:
+        if parameter_sets[best]["damping"] in [np.min(dampings), np.max(dampings)]:
+            warnings.warn(
+                f"Warning: best damping parameter ({parameter_sets[best]['damping']}) "
+                "for harmonica.EquivalentSources() is at the limit of provided values "
+                f"({np.min(dampings), np.max(dampings)}) and thus is likely not a "
+                "global minimum, expand the range of values"
+            )
+    except TypeError:
+        pass
+    if parameter_sets[best]["depth"] in [np.min(depths), np.max(depths)]:
+        warnings.warn(
+            f"Warning: best depth parameter ({parameter_sets[best]['depth']}) for "
+            "harmonica.EquivalentSources() is at the limit of provided values "
+            f"({np.min(depths), np.max(depths)}) and thus is likely not a global "
+            "minimum, expand the range of values"
+        )
+
     eqs_best = hm.EquivalentSources(**parameter_sets[best], **kwargs).fit(
         coordinates, data
     )
@@ -1775,7 +2606,10 @@ def eq_sources_best(
     and predict the gravity on a regular grid. Set the observation height to upwards
     continue to, or use the max height of the original data (default).
     """
-    eqs_best = eq_sources_best_param(parameter_sets, coordinates, data, **kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", sp.linalg.LinAlgWarning)
+        # with HiddenPrints():
+        eqs_best = eq_sources_best_param(parameter_sets, coordinates, data, **kwargs)
 
     if height is None:
         height = coordinates[2].max()
@@ -1897,7 +2731,9 @@ def optimize_eq_source_params(
                     parallel=parallel,
                 )
 
-    print(study.best_trial)
+    print("Best params:", study.best_params)
+    print("Best trial:", study.best_trial.number)
+    print("Best score:", study.best_trial.value)
 
     eqs = hm.EquivalentSources(
         damping=study.best_params.get("damping"),
@@ -1919,10 +2755,14 @@ def normalize_xarray(da, low=0, high=1):
     # min_val = da.values.min()
     # max_val = da.values.max()
 
+    da = da.copy()
+
     min_val = da.quantile(0)
     max_val = da.quantile(1)
 
-    return (high - low) * (((da - min_val) / (max_val - min_val)).clip(0, 1)) + low
+    da2 = (high - low) * (((da - min_val) / (max_val - min_val)).clip(0, 1)) + low
+
+    return da2.drop("quantile")
 
 
 def grids_to_prisms(
@@ -1943,7 +2783,9 @@ def grids_to_prisms(
         will be inverted
     density : Union[float, int, xr.DataArray]
         data or constant to use for prism densities.
-
+    input_coord_names : list, optional
+        names of the coordinates in the input dataarray, by default
+        ["easting", "northing"]
     Returns
     -------
     hm.prism_layer
@@ -1968,9 +2810,10 @@ def grids_to_prisms(
         reference=reference,
         properties={
             "density": dens,
-            "thickness": surface - reference,
         },
     )
+
+    prisms["thickness"] = prisms.top - prisms.bottom
 
     return prisms
 
@@ -1981,6 +2824,7 @@ def forward_grav_of_prismlayer(
     names: list,
     remove_median=False,
     DC_shift=None,
+    coord_names=["easting", "northing", "upward"],
     progressbar=False,
     plot: bool = True,
     **kwargs,
@@ -1989,9 +2833,10 @@ def forward_grav_of_prismlayer(
 
     for i, p in enumerate(prisms):
         grav = p.prism_layer.gravity(
-            coordinates=(df.easting, df.northing, df.upward),
+            coordinates=(df[coord_names[0]], df[coord_names[1]], df[coord_names[2]]),
             field="g_z",
             progressbar=progressbar,
+            thickness_threshold=kwargs.get("thickness_threshold", None),
         )
 
         # center around 0
@@ -2012,7 +2857,7 @@ def forward_grav_of_prismlayer(
         df.forward_total -= df.forward_total.median()
 
     # grid each column into a common dataset
-    grids = df.set_index(["northing", "easting"]).to_xarray()
+    grids = df.set_index([coord_names[1], coord_names[0]]).to_xarray()
 
     if plot is True:
         for i, n in enumerate(names + ["forward_total"]):
@@ -2339,6 +3184,7 @@ def regional_seperation_quality(
         tension_factor=param,
         eq_sources=param,
         block_size=kwargs.get("block_size", grav_spacing),
+        eq_damping=kwargs.get("eq_damping", None),
     )
 
     if comparison_method == "regional_comparison":

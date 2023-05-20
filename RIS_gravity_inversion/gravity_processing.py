@@ -10,9 +10,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pygmt
 import scipy
+import shapely
 import verde as vd
 from antarctic_plots import utils
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, MultiPoint, Point
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -51,7 +52,10 @@ def create_intersection_table(
     create a dataframe which contains the intersections between lines. Intersections are
     only included if the distance between the closest points on each line and the
     intersection point is within "cutoff_dist". The intersections are calculated by
-    representing the point data as lines, and finding their crossover.
+    representing the point data as lines, and finding the hypothetical crossover.
+    By default crossovers will only be between the first and last point of a line. If
+    there is an expected crossover just beyond the end of a line which should be
+    included, use the `buffer_dist` arg to extend the line representation of the data.
 
     data: gpd.GeoDataFrame, containing a column specifying the line names
     (line_col_name), and a "geometry" column
@@ -87,6 +91,12 @@ def create_intersection_table(
     line1_dists = []
     line2_dists = []
     for i, p in enumerate(inters.geometry):
+        # look into shapely.interpolate() to get points based on distance along line
+        # look into shapely.project() to get distance along line1 which is closest point
+        # to line2
+        # shapely.crosses or shapely.intersects for if lines cross or not
+        # shapely.nearest_points()
+
         # find nearest 2 lines to intersection point using LineString's
         grouped["dist"] = grouped.geometry.distance(p)
         nearest_lines = grouped.sort_values(by="dist")[[line_col_name]].iloc[0:2]
@@ -124,7 +134,7 @@ def create_intersection_table(
 
     inters["max_dist"] = inters[["line1_dist", "line2_dist"]].max(axis=1)
 
-    # if intersection is within cutoff_dist, remove rows
+    # if intersection is not within cutoff_dist, remove rows
     if cutoff_dist is not None:
         prior_len = len(inters)
         inters = inters[inters.max_dist < cutoff_dist]
@@ -227,10 +237,97 @@ def add_intersections(
     return gdf, inters
 
 
-def get_line_intersections(lines):
+def extend_lines(
+    gdf,
+    max_interp_dist,
+):
+    """
+    WIP attempt to extend lines to intersect nearby lines
+    """
+    grouped = gdf[(gdf.line == 1040) | (gdf.line == 20)].groupby(
+        "line", as_index=False
+    )["geometry"]
+    gdf2 = gdf[(gdf.line == 1040) | (gdf.line == 20)]
+    # grouped = grouped.apply(lambda x: LineString(x.tolist()))
+    # lines = grouped.iloc[0:2].geometry.copy()
+
+    # for name1, name2 in itertools.combinations(list(grouped.groups.keys()), 2):
+    for name1, name2 in itertools.combinations(gdf2.line.unique(), 2):
+        line1 = LineString(grouped.get_group(name1).tolist())
+        line2 = LineString(grouped.get_group(name2).tolist())
+
+        # get line endpoints
+        # line1_endpoints = MultiPoint(
+        #   [Point(list(line1.coords)[0]), Point(list(line1.coords)[-1])])
+        # line2_endpoints = MultiPoint(
+        #   [Point(list(line2.coords)[0]), Point(list(line2.coords)[-1])])
+        line1_endpoints = MultiPoint([list(line1.coords)[0], list(line1.coords)[-1]])
+        line2_endpoints = MultiPoint([list(line2.coords)[0], list(line2.coords)[-1]])
+
+        # print(line1_endpoints)
+        # print(line2_endpoints)
+
+        # get nearest points on each line to the closest of the other lines endpoints
+        nearest_line1_point_to_line2_endpoints = shapely.nearest_points(
+            line1, line2_endpoints
+        )[0]
+        nearest_line2_point_to_line1_endpoints = shapely.nearest_points(
+            line2, line1_endpoints
+        )[0]
+
+        # print(nearest_line2_point_to_line1_endpoints)
+        # print(nearest_line1_point_to_line2_endpoints)
+
+        # get distances between nearest points on line with closest endpoint of
+        # other line
+        distance_line2_endpoint_to_line1 = np.min(
+            [
+                x.distance(nearest_line1_point_to_line2_endpoints)
+                for x in line2_endpoints
+            ]
+        )
+        distance_line1_endpoint_to_line2 = np.min(
+            [
+                x.distance(nearest_line2_point_to_line1_endpoints)
+                for x in line1_endpoints
+            ]
+        )
+
+        # print(distance_line2_endpoint_to_line1)
+        # print(distance_line1_endpoint_to_line2)
+
+        # if distance is lower than cutoff, add intersection points to extend lines
+        if distance_line1_endpoint_to_line2 <= max_interp_dist:
+            line2_new = LineString(
+                list(line2.coords) + list(nearest_line1_point_to_line2_endpoints.coords)
+            )
+            assert len(list(line2.coords)) + 1 == len(list(line2_new.coords))
+            print(f"extended line: {name1}")
+            gdf2
+        else:
+            line2_new = line2
+
+        # repeat for line2
+        if distance_line2_endpoint_to_line1 <= max_interp_dist:
+            line1_new = LineString(
+                list(line1.coords) + list(nearest_line2_point_to_line1_endpoints.coords)
+            )
+            assert len(list(line1.coords)) + 1 == len(list(line1_new.coords))
+            print(f"extended line: {name2}")
+        else:
+            line1_new = line1
+
+        # print(len(list(line1.coords)))
+        # print(len(list(line2.coords)))
+        # print(len(list(line1_new.coords)))
+        # print(len(list(line2_new.coords)))
+
+
+def get_line_intersections(lines, buffer_dist=None):
     """
     adapted from https://gis.stackexchange.com/questions/137909/intersecting-lines-to-get-crossings-using-python-with-qgis # noqa
     """
+
     inters = []
     for line1, line2 in itertools.combinations(lines, 2):
         if line1.intersects(line2):
@@ -886,6 +983,7 @@ def iterative_line_levelling(
     starting_mistie_col,
     starting_data_col,
     iterations,
+    cols_to_fit,
     mistie_prefix=None,
     levelled_data_prefix=None,
     plot_iterations=False,
@@ -917,7 +1015,7 @@ def iterative_line_levelling(
                 ints,
                 df,
                 lines_to_level=flight_line_names,
-                cols_to_fit="dist_along_line1",
+                cols_to_fit=cols_to_fit,
                 cols_to_predict="dist_along_line",
                 degree=degree,
                 data_col=data_col,
@@ -1101,14 +1199,14 @@ def plotly_points(
     coord_names=None,
     color_col=None,
     hover_cols=None,
-    point_size=2,
+    point_size=4,
     cmap=None,
     cmap_middle=None,
     robust=True,
     theme="plotly_dark",
 ):
     """
-    Create a scatterplot of spatial data. By default, coordinates are extract from
+    Create a scatterplot of spatial data. By default, coordinates are extracted from
     geopandas geometry column, or from user specified columns given by 'coord_names'.
     """
     data = df[df[color_col].notna()].copy()
@@ -1161,6 +1259,13 @@ def plotly_points(
         scaleanchor="x",
         scaleratio=1,
     )
+
+    fig.update_layout(
+        autosize=False,
+        width=800,
+        height=800,
+    )
+
     fig.update_traces(marker={"size": point_size})
 
     fig.show()
@@ -1449,7 +1554,7 @@ def plot_flightlines(
                 fig.text(
                     x=lines[i].easting.loc[lines[i][x_or_y].idxmax()],
                     y=lines[i].northing.loc[lines[i][x_or_y].idxmax()],
-                    text=str(lines[i].line.iloc[0]),
+                    text=str(int(lines[i].line.iloc[0])),
                     justify="CM",
                     font=kwargs.get("font", "5p,black"),
                     fill="white",
@@ -1475,7 +1580,7 @@ def plot_flightlines(
                 fig.text(
                     x=lines[i].easting.loc[lines[i][x_or_y].idxmin()],
                     y=lines[i].northing.loc[lines[i][x_or_y].idxmin()],
-                    text=str(lines[i].line.iloc[0]),
+                    text=str(int(lines[i].line.iloc[0])),
                     justify="CM",
                     font=kwargs.get("font", "5p,black"),
                     fill="white",

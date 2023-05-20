@@ -46,6 +46,7 @@ dependencies = [
     "jupyter-server-proxy",
     "trame",
     "pykdtree",
+    "cmocean",
 ]
 
 [project.optional-dependencies]

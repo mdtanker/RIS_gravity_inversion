@@ -10,7 +10,7 @@ STYLE_CHECK_FILES= . #$(PROJECT)
 #
 install:
 	pip install -e .
-	pip install --upgrade git+https://github.com/fatiando/verde
+	# pip install --upgrade git+https://github.com/fatiando/verde
 
 conda_install:
 	mamba env create --file env/environment.yml --name $(PROJECT) --force

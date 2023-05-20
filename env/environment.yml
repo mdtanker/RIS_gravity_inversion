@@ -14,15 +14,16 @@ dependencies:
   - pyvista
   - pyvista-xarray
   - harmonica
-  # - verde
+  - verde>=1.8.0
   - xarray
   - tqdm
   - rioxarray
   - seaborn
   - ipykernel
-  # - cmocean
+  - cmocean
   - numba
   - optuna
+  - boule
   - botorch<0.8.0
   - plotly
   - hvplot
@@ -36,7 +37,7 @@ dependencies:
   - mamba
   - pip
   - pip:
-    - git+https://github.com/fatiando/verde
+    # - git+https://github.com/fatiando/verde
     # - git+https://github.com/mdtanker/antarctic_plots
     - numba-progress
     - tqdm-joblib
