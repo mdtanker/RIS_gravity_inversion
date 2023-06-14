@@ -2,8 +2,15 @@
 results/*
 !results/.gitkeep
 
+optimization_logs/*
+!optimization_logs/.gitkeep
+
+data/*
+!data/.gitkeep
+
 synthetic_data/*
 !synthetic_data/.gitkeep
+
 # inversion layers
 inversion_layers/*
 !inversion_layers/.gitkeep
@@ -17,8 +24,10 @@ tmp_outputs/*
 **/__pycache__/
 __pycache__/
 
+**/*cache
+
 # Jupyter checkpoints
-**/.ipynb_checkpoints/
+.ipynb_checkpoints
 
 # Setuptools distribution folder
 /dist/

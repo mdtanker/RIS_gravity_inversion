@@ -2,8 +2,8 @@ name: RIS_gravity_inversion
 channels:
   - conda-forge
 dependencies:
-  - python=3.9
-  - pygmt
+  - python=3.10
+  - pygmt>=0.9.0
   - geopandas
   - geoviews
   - numpy
@@ -13,30 +13,38 @@ dependencies:
   - matplotlib
   - pyvista
   - pyvista-xarray
-  - ipyvtklink
-  - ipygany
-  - pythreejs
   - harmonica
-  - verde
+  - verde>=1.8.0
   - xarray
   - tqdm
   - rioxarray
-  - openssl
   - seaborn
   - ipykernel
-  - proj-data
   - cmocean
   - numba
   - optuna
+  - boule
+  - botorch<0.8.0
   - plotly
   - hvplot
   - jupyter_bokeh
   - jupyterlab
+  - jupyterlab_execute_time
+  - isort
+  - pytest
+  - pytest-cov
+  - python-dotenv
+  - mamba
   - pip
   - pip:
+    # - git+https://github.com/fatiando/verde
+    # - git+https://github.com/mdtanker/antarctic_plots
     - numba-progress
-    - snakeviz
+    - tqdm-joblib
     - jupyter-server-proxy
     - trame
+    - flake8-pyproject
+    - black[jupyter]
+    - constrained-linear-regression
+    - --editable ../
     - --editable ../../antarctic_plots
-    - --editable . 
