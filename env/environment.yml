@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
-  - pygmt
+  - pygmt>=0.9.0
   - geopandas
   - geoviews
   - numpy

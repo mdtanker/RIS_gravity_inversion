@@ -6,7 +6,6 @@ import verde as vd
 import xarray as xr
 from antarctic_plots import profile
 
-import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.utils as inv_utils
 
 
@@ -82,6 +81,10 @@ def regional_constraints(
     dampings=None,
     delayed=False,
     constraint_weights_col=None,
+    eqs_gridding_trials=10,
+    eqs_gridding_damping_lims=[0.1, 100],
+    eqs_gridding_depth_lims=[1e3, 100e3],
+    force_coords=None,
 ):
     """
     seperate the regional field by sampling and regridding at the constraint points
@@ -104,13 +107,39 @@ def regional_constraints(
     constraints_df = constraints_df[constraints_df.misfit.notna()]
 
     if constraint_block_size is not None:
-        # get median misfit of constraint points in each cell
-        constraints_df = pygmt.blockmedian(
-            data=constraints_df[[original_dims[1], original_dims[0], "misfit"]],
+        # get weighted mean misfit of constraint points in each cell
+        if constraint_weights_col is None:
+            weights = None
+            uncertainty = False
+        else:
+            weights = constraints_df[constraint_weights_col]
+            uncertainty = True
+
+        blockmean = vd.BlockMean(
             spacing=constraint_block_size,
-            region=region,
-            registration=registration,
+            uncertainty=uncertainty,
         )
+
+        coordinates, data, weights = blockmean.filter(
+            coordinates=(
+                constraints_df[original_dims[1]],
+                constraints_df[original_dims[0]],
+            ),
+            data=constraints_df.misfit,
+            weights=weights,
+        )
+        # add reduced coordinates to a dictionary
+        coord_cols = {
+            k: v for k, v in zip([original_dims[1], original_dims[0]], coordinates)
+        }
+
+        # add reduced data to a dictionary
+        if constraint_weights_col is None:
+            data_cols = {"misfit": data}
+        else:
+            data_cols = {"misfit": data, constraint_weights_col: weights}
+        # merge dicts and create dataframe
+        constraints_df = pd.DataFrame(data=coord_cols | data_cols)
 
     # grid the entire region misfit based just on the misfit at the constraints
     if grid_method == "pygmt":
@@ -119,7 +148,7 @@ def regional_constraints(
             region=region,
             spacing=spacing,
             registration=registration,
-            T=tension_factor,
+            tension=tension_factor,
             verbose="q",
         )
     elif grid_method == "verde":
@@ -127,56 +156,60 @@ def regional_constraints(
             dampings = list(np.logspace(-10, -2, num=9))
             dampings.append(None)
 
+        if constraint_weights_col is None:
+            weights = None
+        else:
+            weights = constraints_df[constraint_weights_col]
+
         spline = inv_utils.best_SplineCV(
             coordinates=(
                 constraints_df[original_dims[1]],
                 constraints_df[original_dims[0]],
             ),
             data=constraints_df.misfit,
-            weights=constraints_df[constraint_weights_col],
+            weights=weights,
             dampings=dampings,
             delayed=delayed,
+            force_coords=force_coords,
         )
 
         regional_misfit = spline.grid(region=region, spacing=spacing).scalars
 
     elif grid_method == "eq_sources":
-        pass
-        # coords = (
-        #     constraints_df[original_dims[1]],
-        #     constraints_df[original_dims[0]],
-        #     constraints_df.upward,
-        # )
-        #         dampings = [.001, .01, .05, .1]
-        #         depths = [10e3, 30e3, 60e3, 90e3]
-        #         parameter_sets = [
-        #             dict(damping=combo[0], depth=combo[1])
-        #             for combo in itertools.product(dampings, depths)
-        #         ]
-        #         eqs_best, regional_misfit, reg_df = inv_utils.eq_sources_best(
-        #             parameter_sets = parameter_sets,
-        #             coordinates = coords,
-        #             data = constraints_df.misfit,
-        #             region = region,
-        #             spacing = spacing,
-        #         )
-        # study_df, eqs = inv_utils.optimize_eq_source_params(
-        #     coords,
-        #     constraints_df.misfit,
-        #     n_trials=20,
-        #     damping_limits=[0.0005, 0.01],
-        #     depth_limits=[60e3, 150e3],
-        #     plot=False,
-        #     parallel=True,
-        # )
-        # # Define grid coordinates
-        # grid_coords = vd.grid_coordinates(
-        #     region=region,
-        #     spacing=spacing,
-        #     extra_coords=coords[2].max(),
-        # )
-        # # predict sources onto grid to get regional
-        # regional_misfit = eqs.grid(grid_coords, data_names="pred").pred
+        # pass
+        coords = (
+            constraints_df[original_dims[1]],
+            constraints_df[original_dims[0]],
+            np.ones_like(constraints_df[original_dims[1]]) * 1e3,  # grav obs height
+        )
+        if constraint_weights_col is None:
+            weights = None
+        else:
+            weights = constraints_df[constraint_weights_col]
+
+        # eqs = hm.EquivalentSources(depth=100e3, damping=1e2)
+        # eqs.fit(coords, constraints_df.misfit, weights=weights,)
+
+        study_df, eqs = inv_utils.optimize_eq_source_params(
+            coords,
+            constraints_df.misfit,
+            n_trials=eqs_gridding_trials,
+            damping_limits=eqs_gridding_damping_lims,
+            depth_limits=eqs_gridding_depth_lims,
+            plot=False,
+            parallel=True,
+            weights=weights,
+        )
+
+        # Define grid coordinates
+        grid_coords = vd.grid_coordinates(
+            region=region,
+            spacing=spacing,
+            extra_coords=coords[2].max(),
+        )
+        # predict sources onto grid to get regional
+        regional_misfit = eqs.grid(grid_coords, data_names="pred").pred
+
     else:
         raise ValueError("invalid string for grid_method")
 
@@ -251,9 +284,6 @@ def regional_seperation(
             f" {regional_method}."
         )
 
-    input_forward_column = kwargs.get("input_forward_column", "forward_total")
-    input_grav_column = kwargs.get("input_grav_column", "grav")
-
     # if inversion region not supplied, extract from dataframe
     inversion_region = kwargs.get(
         "inversion_region", vd.get_region((input_grav.easting, input_grav.northing))
@@ -271,30 +301,21 @@ def regional_seperation(
     else:
         constraints = None
 
-    anomalies = input_grav[input_grav[input_grav_column].notna()]
+    # anomalies = input_grav[input_grav[input_grav_column].notna()]
+    anomalies = input_grav.copy()
 
     # if anomalies already calculated, drop the columns
     try:
-        anomalies.drop(columns=["misfit", "reg", "res"], inplace=True)
+        anomalies.drop(columns=["reg", "res"], inplace=True)
     except KeyError:
         pass
 
-    # calculate misfit
-    anomalies = inv.misfit(
-        input_grav=anomalies,
-        input_forward_column=input_forward_column,
-        input_grav_column=input_grav_column,
-        constraints=constraints,
-    )
-
     # grid misfit
     misfit_grid = anomalies.set_index(["northing", "easting"]).to_xarray().misfit
-    # misfit_grid = pygmt.xyz2grd(
-    #     data=anomalies[["easting", "northing", "misfit"]],
-    #     region=inversion_region,
-    #     spacing=grav_spacing,
-    #     registration=registration,
-    # )
+
+    # remove median from misfit
+    # misfit_grid -= np.nanmedian(misfit_grid)
+    # misfit_grid.plot()
 
     if regional_method == "trend":
         anomalies = regional_trend(
@@ -324,6 +345,10 @@ def regional_seperation(
             dampings=kwargs.get("dampings", None),
             delayed=kwargs.get("delayed", False),
             constraint_weights_col=kwargs.get("constraint_weights_col", None),
+            eqs_gridding_trials=kwargs.get("eqs_gridding_trials"),
+            eqs_gridding_damping_lims=kwargs.get("eqs_gridding_damping_lims"),
+            eqs_gridding_depth_lims=kwargs.get("eqs_gridding_depth_lims"),
+            force_coords=kwargs.get("force_coords", None),
         )
     elif regional_method == "eq_sources":
         anomalies = regional_eq_sources(

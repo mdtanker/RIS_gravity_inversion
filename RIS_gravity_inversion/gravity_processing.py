@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pygmt
 import scipy
+import seaborn as sns
 import shapely
 import verde as vd
 from antarctic_plots import utils
@@ -19,6 +20,32 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 from RIS_gravity_inversion import utils as inv_utils
+
+
+def plot_levelling_convergence(
+    results,
+    mistie_prefix="mistie_trend",
+    logy=False,
+    title="Levelling convergence",
+):
+    sns.set_theme()
+
+    # get mistie columns
+    cols = [s for s in results.columns.to_list() if s.startswith(mistie_prefix)]
+
+    iters = len(cols)
+    mistie_rmses = [utils.RMSE(results[i]) for i in cols]
+
+    fig, ax1 = plt.subplots(figsize=(5, 3.5))
+    plt.title(title)
+    ax1.plot(range(iters), mistie_rmses, "bo-")
+    ax1.set_xlabel("Iteration")
+    if logy:
+        ax1.set_yscale("log")
+    ax1.set_ylabel("Cross-over RMS (mGal)", color="k")
+    ax1.tick_params(axis="y", colors="k", which="both")
+
+    plt.tight_layout()
 
 
 def distance_along_line(data, line_col_name="line", time_col_name="unixtime"):
@@ -44,6 +71,7 @@ def distance_along_line(data, line_col_name="line", time_col_name="unixtime"):
 def create_intersection_table(
     data,
     line_col_name="line",
+    exclude_ints=None,
     cutoff_dist=None,
     plot=True,
     robust=False,
@@ -147,14 +175,51 @@ def create_intersection_table(
     inters["easting"] = inters.geometry.x
     inters["northing"] = inters.geometry.y
 
+    if exclude_ints is not None:
+        exclude_inds = []
+        for i in exclude_ints:
+            # if pair of lines numbers given, get those indices
+            if len(i) == 2:
+                ind = inters[
+                    (inters.line1 == i[0]) & (inters.line2 == i[1])
+                ].index.values
+            # if single line number, get all intersections of that line
+            elif len(i) == 1:
+                ind = inters[
+                    (inters.line1 == i[0]) | (inters.line2 == i[0])
+                ].index.values
+            exclude_inds.extend(ind)
+        inters.drop(
+            index=exclude_inds,
+            inplace=True,
+        )
+
+    a = len(inters)
+    # keep only the closest of duplicated intersections
+    inters = (
+        inters.sort_values(
+            "max_dist",
+            ascending=False,
+        )
+        .drop_duplicates(
+            subset=["line1", "line2"],
+            keep="last",
+        )
+        .sort_index()
+    )
+    b = len(inters)
+    if a != b:
+        print(f"Dropped {a-b} duplicate intersections")
+
     if plot is True:
         plotly_points(
             inters,
             color_col="max_dist",
-            hover_cols=["line1", "line2", "line1_dist", "line2_dist"],
-            robust=robust,
-            point_size=5,
-            cmap="thermal_r",
+            hover_cols=["line1", "line2", "max_dist", "line1_dist", "line2_dist"],
+            robust=True,
+            point_size=6,
+            theme=None,
+            cmap="greys",
         )
 
     inters.drop(columns=["line1_dist", "line2_dist"], inplace=True)
@@ -332,12 +397,13 @@ def get_line_intersections(lines, buffer_dist=None):
     for line1, line2 in itertools.combinations(lines, 2):
         if line1.intersects(line2):
             inter = line1.intersection(line2)
+
             if "Point" == inter.type:
                 inters.append(inter)
             elif "MultiPoint" == inter.type:
-                inters.extend([pt for pt in inter])
+                inters.extend([pt for pt in inter.geoms])
             elif "MultiLineString" == inter.type:
-                multiLine = [line for line in inter]
+                multiLine = [line for line in inter.geoms]
                 first_coords = multiLine[0].coords[0]
                 last_coords = multiLine[len(multiLine) - 1].coords[1]
                 inters.append(Point(first_coords[0], first_coords[1]))
@@ -861,7 +927,7 @@ def level_lines(
         cols_to_predict = [cols_to_predict]
 
     df[levelled_col] = np.nan
-    df["levelled_correction"] = np.nan
+    df["levelling_correction"] = np.nan
 
     # iterate through the chosen lines
     for line in lines_to_level:
@@ -871,6 +937,7 @@ def level_lines(
         ints = inters[(inters.line1 == line) | (inters.line2 == line)]
 
         # fit a polynomial trend through the lines mistie values
+        # if predicting on 2 variables (easting and northing) use verde
         if len(cols_to_fit) > 1:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="Under-determined problem")
@@ -889,14 +956,19 @@ def level_lines(
                         line_df["levelling_correction"] = 0
                     else:
                         raise (e)
+        # if predicting on 1 variable (distance along line) use scikitlearn
         elif len(cols_to_fit) == 1:
             try:
                 line_df = skl_predict_trend(
-                    data_to_fit=ints,
-                    cols_to_fit=cols_to_fit + [mistie_col],
-                    data_to_predict=line_df,
-                    cols_to_predict=cols_to_predict + ["levelling_correction"],
-                    degree=degree,
+                    data_to_fit=ints,  # df with mistie values
+                    cols_to_fit=cols_to_fit
+                    + [mistie_col],  # column names for distance/mistie
+                    data_to_predict=line_df,  # df with line data
+                    cols_to_predict=cols_to_predict
+                    + [
+                        "levelling_correction"
+                    ],  # column names for distance/ levelling correction
+                    degree=degree,  # degree order for fitting line to misties
                 )
             except ValueError as e:
                 if "Found array with " in str(e):
@@ -905,6 +977,12 @@ def level_lines(
                     line_df["levelling_correction"] = 0
                 else:
                     raise (e)
+
+        # if levelling tie lines, negate the correction
+        if cols_to_fit[0][-1] == "2":
+            line_df["levelling_correction"] *= -1
+        else:
+            pass
 
         # remove the trend from the gravity
         values = line_df[data_col] - line_df.levelling_correction
@@ -988,6 +1066,8 @@ def iterative_line_levelling(
     levelled_data_prefix=None,
     plot_iterations=False,
     plot_results=False,
+    plot_convergence=False,
+    **kwargs,
 ):
     df = data.copy()
     ints = inters.copy()
@@ -998,8 +1078,7 @@ def iterative_line_levelling(
         levelled_data_prefix = f"levelled_data_trend{degree}"
 
     rmse = utils.RMSE(ints[starting_mistie_col])
-    mis_mean = np.nanmean(ints[starting_mistie_col])
-    print(f"Starting RMSE / mean mistie: {rmse} / {mis_mean}")
+    print(f"Starting RMS mistie: {rmse} mGal")
 
     for i in range(1, iterations + 1):
         if i == 1:
@@ -1009,7 +1088,6 @@ def iterative_line_levelling(
             data_col = f"{levelled_data_prefix}_{i-1}"
             mistie_col = f"{mistie_prefix}_{i-1}"
 
-        # level lines to ties
         with inv_utils.HiddenPrints():
             df, ints = level_lines(
                 ints,
@@ -1025,12 +1103,11 @@ def iterative_line_levelling(
                 line_col="line",
             )
         rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}"])
-        mis_mean = np.nanmean(ints[f"{mistie_prefix}_{i}"])
-        print(f"RMSE / mean mistie after iteration {i}: {rmse} / {mis_mean}")
-        mean_corr = np.nanmean(
+        print(f"RMS mistie after iteration {i}: {rmse} mGal")
+        rmse_corr = utils.RMSE(
             df[(df.line.isin(flight_line_names))].levelling_correction
         )
-        print(f"mean correction to lines: {mean_corr} m")
+        print(f"RMS correction to lines: {rmse_corr} mGal")
 
         if plot_iterations is True:
             # plot flight lines
@@ -1044,12 +1121,21 @@ def iterative_line_levelling(
                 ],
             )
 
+    levelled_col = list(df.columns)[-2]
+
+    df["levelling_correction"] = df[starting_data_col] - df[levelled_col]
+    if plot_convergence is True:
+        plot_levelling_convergence(
+            df,
+            mistie_prefix=mistie_prefix,
+            logy=kwargs.get("logy", False),
+        )
     if plot_results is True:
         # plot flight lines
         plotly_points(
             df[df.line.isin(flight_line_names)],
             color_col="levelling_correction",
-            point_size=2,
+            point_size=4,
             hover_cols=[
                 "line",
                 f"{levelled_data_prefix}_{i}",
@@ -1075,6 +1161,8 @@ def iterative_levelling_alternate(
     levelled_data_prefix=None,
     plot_iterations=False,
     plot_results=False,
+    plot_convergence=False,
+    **kwargs,
 ):
     df = data.copy()
     ints = inters.copy()
@@ -1085,8 +1173,7 @@ def iterative_levelling_alternate(
         levelled_data_prefix = f"levelled_data_trend{degree}"
 
     rmse = utils.RMSE(ints[starting_mistie_col])
-    mis_mean = np.nanmean(ints[starting_mistie_col])
-    print(f"Starting RMSE mistie: {rmse}, {mis_mean}")
+    print(f"Starting RMSE mistie: {rmse} mGal")
 
     for i in range(1, iterations + 1):
         if i == 1:
@@ -1112,12 +1199,11 @@ def iterative_levelling_alternate(
                 line_col="line",
             )
         rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}l"])
-        mis_mean = np.nanmean(ints[f"{mistie_prefix}_{i}l"])
-        print(f"RMSE mistie after iteration {i}: L -> T: {rmse}, {mis_mean}")
-        mean_corr = np.nanmean(
+        print(f"RMSE mistie after iteration {i}: L -> T: {rmse} mGal")
+        rmse_corr = utils.RMSE(
             df[(df.line.isin(flight_line_names))].levelling_correction
         )
-        print(f"mean correction to lines: {mean_corr} m")
+        print(f"RMS correction to lines: {rmse_corr} mGal")
 
         # level ties to lines
         with inv_utils.HiddenPrints():
@@ -1135,10 +1221,9 @@ def iterative_levelling_alternate(
                 line_col="line",
             )
         rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}t"])
-        mis_mean = np.nanmean(ints[f"{mistie_prefix}_{i}t"])
-        print(f"RMSE mistie after iteration {i}: T -> L: {rmse}, {mis_mean}")
-        mean_corr = np.nanmean(df[(df.line.isin(tie_line_names))].levelling_correction)
-        print(f"mean correction to ties: {mean_corr} m")
+        print(f"RMSE mistie after iteration {i}: T -> L: {rmse} mGal")
+        rmse_corr = utils.RMSE(df[(df.line.isin(tie_line_names))].levelling_correction)
+        print(f"RMS correction to ties: {rmse_corr} mGal")
 
         if plot_iterations is True:
             # plot flight lines
@@ -1162,6 +1247,16 @@ def iterative_levelling_alternate(
                 ],
             )
 
+    levelled_col = list(df.columns)[-2]
+    df["levelling_correction"] = df[starting_data_col] - df[levelled_col]
+
+    if plot_convergence is True:
+        plot_levelling_convergence(
+            df,
+            mistie_prefix=mistie_prefix,
+            logy=kwargs.get("logy", False),
+        )
+
     if plot_results is True:
         # plot flight lines
         plotly_points(
@@ -1177,14 +1272,14 @@ def iterative_levelling_alternate(
         plotly_points(
             df[df.line.isin(tie_line_names)],
             color_col="levelling_correction",
-            point_size=5,
+            point_size=4,
             hover_cols=[
                 "line",
                 f"{levelled_data_prefix}_{i}t",
             ],
         )
 
-    return df, inters
+    return df, ints
 
 
 """
@@ -1232,7 +1327,7 @@ def plotly_points(
 
     if cmap is None:
         if (lims[0] < 0) and (lims[1] > 0):
-            cmap = "RdBu"
+            cmap = "RdBu_r"
             cmap_middle = 0
         else:
             cmap = None
@@ -1458,35 +1553,54 @@ def plot_line_and_crosses(
         fig.show()
 
     elif plot_type == "mpl":
-        plt.figure(dpi=200)
+        # plt.figure(dpi=200)
+        fig, ax1 = plt.subplots(figsize=(9, 6))
         plt.grid()
-        plt.scatter(
-            x=df[x],
-            y=df[y],
-            s=kwargs.get("point_size", 0.1),
-            c=kwargs.get("point_color", "b"),
-            marker=".",
-            zorder=1,
-            label=y,
-        )
 
-        plt.scatter(
-            x=df[df.is_intersection][x],
-            y=df[df.is_intersection][y],
-            s=kwargs.get("point_size", 20),
-            c=kwargs.get("point_color", "r"),
-            marker="x",
-            zorder=2,
-        )
-        for i, txt in enumerate(df[df.is_intersection].intersecting_line):
-            plt.text(
-                df[df.is_intersection][x].values[i],
-                df[df.is_intersection][y].values[i],
-                s=str(txt),
-                fontsize="x-small",
+        for a, j in enumerate(y):
+            if a > 0:
+                ax2 = ax1.twinx()
+                axis = ax2
+                color = kwargs.get("point_color", "orangered")
+            else:
+                axis = ax1
+                color = kwargs.get("point_color", "mediumslateblue")
+
+            axis.plot(
+                df[x],
+                df[j],
+                linewidth=0.5,
+                color=color,
+                marker=".",
+                markersize=kwargs.get("point_size", 0.1),
+                label=j,
             )
 
-        plt.legend()
+            axis.scatter(
+                x=df[df.is_intersection][x],
+                y=df[df.is_intersection][j],
+                s=kwargs.get("point_size", 20),
+                c=kwargs.get("point_color", "r"),
+                marker="x",
+                zorder=2,
+            )
+            for i, txt in enumerate(df[df.is_intersection].intersecting_line):
+                axis.text(
+                    df[df.is_intersection][x].values[i],
+                    df[df.is_intersection][j].values[i],
+                    s=str(txt),
+                    fontsize="x-small",
+                )
+            axis.set_ylabel(j)
+
+        if len(y) > 1:
+            h1, l1 = ax1.get_legend_handles_labels()
+            h2, l2 = ax2.get_legend_handles_labels()
+            ax1.legend(h1 + h2, l1 + l2)
+        else:
+            plt.legend()
+        ax1.set_xlabel(x)
+
         plt.title(f"Line number: {line}")
         plt.show()
 

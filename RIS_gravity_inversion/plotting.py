@@ -21,6 +21,8 @@ import RIS_gravity_inversion.inversion as inv
 import RIS_gravity_inversion.utils as inv_utils
 from RIS_gravity_inversion import optimization
 
+sns.set_theme()
+
 
 def plot_inversion_ensemble_results_profile(
     prism_results,
@@ -1733,7 +1735,8 @@ def anomalies_plotting(
             diff_cmap="vik+h0",
             hist=True,
             inset=False,
-            points_style="c.15c",
+            points_style=kwargs.get("points_style", "x.2c"),
+            points_pen="1p",
             subplot_labels=True,
             shp_mask=shp_mask,
             robust=robust,
@@ -1761,62 +1764,26 @@ def anomalies_plotting(
             figsize=(sub_width * ncols, sub_width * nrows),
         )
 
-        grav_lims = utils.get_min_max(anom_grids[0], shp_mask)
-        forward_lims = utils.get_min_max(anom_grids[2], shp_mask)
-
-        if robust is True:
-            grav_lims = (
-                np.nanquantile(anom_grids[0], 0.02),
-                np.nanquantile(anom_grids[0], 0.98),
-            )
-            forward_lims = (
-                np.nanquantile(anom_grids[2], 0.02),
-                np.nanquantile(anom_grids[2], 0.98),
-            )
-
-        # get min and max of both grids together
-        misfit_vmin = min(grav_lims[0], forward_lims[0])
-        misfit_vmax = max(grav_lims[1], forward_lims[1])
-
         for i, (col, ax) in enumerate(zip(cols_to_grid, axs.ravel())):
             # plot each grid
-            if i in [0, 2]:
-                anom_grids[i].plot(
-                    ax=ax,
-                    x="x",
-                    y="y",
-                    cmap="RdBu_r",
-                    vmin=misfit_vmin,
-                    vmax=misfit_vmax,
-                    cbar_kwargs={
-                        "orientation": "horizontal",
-                        "anchor": (1, 1),
-                        "fraction": 0.05,
-                        "pad": 0.04,
-                    },
-                )
+            if i == 4:
+                cmap = "RdBu_r"
             else:
-                if shp_mask is not None:
-                    maxabs = vd.maxabs(utils.get_min_max(anom_grids[i], shp_mask))
-                    vmin = -maxabs
-                    vmax = maxabs
-                elif shp_mask is None:
-                    vmin, vmax = None, None
-                anom_grids[i].plot(
-                    ax=ax,
-                    x="x",
-                    y="y",
-                    robust=robust,
-                    vmin=vmin,
-                    vmax=vmax,
-                    cmap="RdBu_r",
-                    cbar_kwargs={
-                        "orientation": "horizontal",
-                        "anchor": (1, 1),
-                        "fraction": 0.05,
-                        "pad": 0.04,
-                    },
-                )
+                cmap = "viridis"
+
+            anom_grids[i].plot(
+                ax=ax,
+                x="x",
+                y="y",
+                robust=robust,
+                cmap=cmap,
+                cbar_kwargs={
+                    "orientation": "horizontal",
+                    "anchor": (1, 1),
+                    "fraction": 0.05,
+                    "pad": 0.04,
+                },
+            )
 
             # add subplot titles
             ax.set_title(plot_titles[i])
@@ -1830,14 +1797,14 @@ def anomalies_plotting(
 
             # add constraint locations as black x's
             if constraints is not None:
-                if i in [2, 3, 4]:
-                    ax.plot(
-                        constraints.easting,
-                        constraints.northing,
-                        "k.",
-                        markersize=kwargs.get("constraint_size", 1),
-                        markeredgewidth=1,
-                    )
+                # if i in [2, 3, 4]:
+                ax.plot(
+                    constraints.easting,
+                    constraints.northing,
+                    "k.",
+                    markersize=kwargs.get("constraint_size", 1),
+                    markeredgewidth=1,
+                )
 
         # add figure title
         fig.suptitle(kwargs.get("title", " "), fontsize=24)
@@ -2134,9 +2101,9 @@ def plot_inversion_iteration_results(
     text1, text2, text3 = [], [], []
     params.pop("iter_times")
     for i, (k, v) in enumerate(params.items(), start=1):
-        if i <= 6:
+        if i <= 5:
             text1.append(f"{k}: {v}\n")
-        elif i <= 12:
+        elif i <= 9:
             text2.append(f"{k}: {v}\n")
         else:
             text3.append(f"{k}: {v}\n")

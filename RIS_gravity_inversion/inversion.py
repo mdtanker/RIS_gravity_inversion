@@ -808,10 +808,12 @@ def geo_inversion(
 
     density_contrast = prisms_ds.density.values.max()
     zref = prisms_ds.top.values.min()
+    assert zref == 0
 
     # add starting surface to dataset
     surface_grid = xr.where(prisms_ds.density > 0, prisms_ds.top, prisms_ds.bottom)
     prisms_ds["surface"] = surface_grid
+    prisms_ds["starting_bed"] = surface_grid
 
     # turn dataset into dataframe
     prisms_df = prisms_ds.to_dataframe().reset_index().dropna().astype(float)
@@ -950,6 +952,9 @@ def geo_inversion(
             ITER,
         )
 
+        if upper_confining_layer is not None:
+            assert np.all(prisms_df.upper_bounds - prisms_df.surface) >= 0
+
         # update the forward gravity and the misfit
         gravity = update_gravity_and_misfit(
             gravity,
@@ -1006,21 +1011,17 @@ def geo_inversion(
         "max_iterations": max_iterations,
         "l2_norm_tolerance": f"{l2_norm_tolerance}",
         "delta_l2_norm_tolerance": f"{delta_l2_norm_tolerance}",
-        "jacobian weights": "Not enabled" if apply_weights is False else "Enabled",
-        # second column
         "deriv_type": deriv_type,
-        "jacobian_prism_size": f"{jacobian_prism_size} m",
+        # second column
         "solver_type": solver_type,
         "solver_damping": solver_damping,
-        "solver_weights": "Not enabled" if solver_weights is None else "Enabled",
-        # third column
         "upper_confining_layer": "Not enabled"
         if upper_confining_layer is None
         else "Enabled",
         "lower_confining_layer": "Not enabled"
         if lower_confining_layer is None
         else "Enabled",
-        "max_layer_change_per_iter": f"{max_layer_change_per_iter} m",
+        # third column
         "time_elapsed": f"{elapsed_time} seconds",
         "average_iteration_time": f"{round(np.mean(iter_times), 2)} seconds",
         "Final misfit RMSE / L2-norm": (
@@ -1222,8 +1223,8 @@ def inversion_damping_MSE(
     final_surface = prism_ds[cols[-1]]
 
     # set reference as un-inverted surface mean
-    zref = int(prism_ds.surface.values.mean())
-    # zref = prisms_ds.top.values.min()
+    # zref = int(prism_ds.surface.values.mean())
+    zref = int(prism_ds.top.values.min())
 
     # set density contrast
     density_contrast = prism_ds.density.values.max()
@@ -1269,125 +1270,7 @@ def inversion_damping_MSE(
             grid2_name="Observed gravity",
             plot=True,
             plot_type="xarray",
-        )
-
-    return score, rmse
-
-
-def inversion_weights_grid_MSE(
-    weights_outer,
-    training_data,
-    testing_data,
-    true_surface=None,
-    inversion_region=None,
-    plot=False,
-    results_fname=None,
-    progressbar=False,
-    **kwargs,
-):
-    """
-    Find MSE between the testing gravity data, and the predict gravity data after and
-    inversion. Follows methods of Uieda and Barbosa 2017.
-    """
-    train = training_data.copy()
-    test = testing_data.copy()
-
-    starting_prisms = kwargs.pop("prism_layer").copy()
-
-    # re calculate weights grid
-    weights, _ = inv_utils.constraints_grid(
-        kwargs.pop("constraints"),
-        starting_prisms.drop("weights"),
-        inner_bound=kwargs.pop("layer_spacing"),
-        outer_bound=weights_outer,
-        low=0,
-        high=1,
-        region=kwargs.pop("inversion_region"),
-        interp_type="spline",
-    )
-    starting_prisms["weights"] = weights
-
-    # run inversion
-    with inv_utils.HiddenPrints():
-        if true_surface is None:
-            results = geo_inversion(
-                input_grav=train, prism_layer=starting_prisms, **kwargs
-            )
-            rmse = None
-            prism_results, grav_results, params, elapsed_time = results
-        else:
-            results = inversion_RMSE(
-                true_surface=true_surface,
-                inversion_region=inversion_region,
-                input_grav=train,
-                prism_layer=starting_prisms,
-                **kwargs,
-            )
-            rmse, prism_results, grav_results, params, elapsed_time, _ = results
-
-    # save results to pickle
-    if results_fname is not None:
-        # remove if exists
-        pathlib.Path(f"{results_fname}.pickle").unlink(missing_ok=True)
-        with open(f"{results_fname}.pickle", "wb") as f:
-            pickle.dump(results, f)
-
-    # grid resulting prisms dataframe
-    prism_ds = prism_results.set_index(["northing", "easting"]).to_xarray()
-
-    # get last iteration's layer result
-    cols = [s for s in prism_results.columns.to_list() if "_layer" in s]
-    final_surface = prism_ds[cols[-1]]
-
-    # set reference as un-inverted surface mean
-    zref = prism_ds.surface.values.mean()
-    # zref = prisms_ds.top.values.min()
-
-    # set density contrast
-    density_contrast = prism_ds.density.values.max()
-
-    assert zref == prism_ds.top.values.min()
-    assert zref == prism_ds.bottom.values.max()
-    assert prism_ds.density.values.max() == -prism_ds.density.values.min()
-
-    # create new prism layer
-    prism_layer = inv_utils.grids_to_prisms(
-        surface=final_surface,
-        reference=zref,
-        density=xr.where(final_surface >= zref, density_contrast, -density_contrast),
-    )
-
-    # calculate forward gravity of prisms on testing points
-    grav_grid, grav_df = inv_utils.forward_grav_of_prismlayer(
-        [prism_layer],
-        test,
-        names=["test_point_grav"],
-        remove_median=False,
-        progressbar=progressbar,
-        plot=False,
-    )
-
-    # compare new layer1 forward with observed
-    observed = test[kwargs.get("input_grav_column")] - test.reg
-    predicted = grav_df.test_point_grav
-
-    dif = predicted - observed
-    # score = np.sum(dif**2)/len(observed)
-    score = inv_utils.RMSE(dif)
-
-    if plot:
-        test_grid = test.set_index(["northing", "easting"]).to_xarray()
-
-        obs = test_grid[kwargs.get("input_grav_column")] - test_grid.reg
-        pred = grav_grid.test_point_grav
-
-        utils.grd_compare(
-            obs,
-            pred,
-            grid1_name="Observed gravity",
-            grid2_name="Predicted gravity",
-            plot=True,
-            plot_type="xarray",
+            robust=True,
         )
 
     return score, rmse

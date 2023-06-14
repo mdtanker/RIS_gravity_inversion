@@ -3,7 +3,6 @@ import copy
 import itertools
 import os
 import pathlib
-import pickle
 import string
 import sys
 import warnings
@@ -23,7 +22,6 @@ import seaborn as sns
 import verde as vd
 import xarray as xr
 import xrft
-import zarr
 from antarctic_plots import fetch, maps, profile, utils
 from dotenv import load_dotenv
 from optuna.storages import JournalFileStorage, JournalStorage
@@ -32,7 +30,6 @@ from requests import get
 from sklearn.metrics import mean_squared_error
 from tqdm.autonotebook import tqdm
 
-from RIS_gravity_inversion import gravity_processing as grav
 from RIS_gravity_inversion import inversion as inv
 from RIS_gravity_inversion import optimization, plotting, regional
 
@@ -141,17 +138,20 @@ def best_SplineCV(
     data,
     weights=None,
     dampings=None,
+    mindists=None,
     delayed=False,
+    force_coords=None,
 ):
     if isinstance(dampings, (float, int)):
         dampings = [dampings]
     # if dampings is None:
     #     dampings = list(np.logspace(-10, -2, num=9))
     #     dampings.append(None)
-
     spline = vd.SplineCV(
         dampings=dampings,
         delayed=delayed,
+        force_coords=force_coords,
+        mindists=mindists,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", sp.linalg.LinAlgWarning)
@@ -377,23 +377,26 @@ def resample_with_test_points(
     return df
 
 
-def inversion_buffer_points(
+def get_buffer_points(
     buffer_width=10e3,
     grid=None,
     mask=None,
     plot=False,
 ):
-    # get buffer RIS mask
+    """
+    Create buffer zone of points around ice shelf border and grid with ice shelf masked.
+    """
+    # get buffered mask
     mask_buffer = mask.buffer(buffer_width)
 
-    # mask grid inside of mask
+    # mask grid inside of un-buffered mask
     grid_masked = utils.mask_from_shp(
         shapefile=mask,
         xr_grid=grid,
         masked=True,
     ).rename("upward")
 
-    # mask bedmachine bed outside of buffered RIS
+    # mask grid outside of buffered mask
     grid_masked_buffer = utils.mask_from_shp(
         shapefile=mask_buffer,
         xr_grid=grid_masked,
@@ -406,89 +409,122 @@ def inversion_buffer_points(
     grid_df_buffer = vd.grid_to_table(grid_masked_buffer).dropna()
 
     if plot is True:
-        grav.plotly_points(
-            grid_df_buffer,
-            color_col="upward",
-            robust=True,
-            point_size=4,
-        )
+        grid_df_buffer.plot.scatter(x="easting", y="northing")
 
     return grid_df_buffer, grid_df_outside, grid_masked
 
 
 def create_starting_bed(
-    buffer_points,
-    inside_constraints,
+    buffer_and_inside_points,
     masked_bed,
     region,
     spacing,
-    weights=None,
+    method="spline",
+    damping=1e-50,
+    tension=0,
+    weights_col_name=None,
     icebase=None,
+    surface=None,
     plot=False,
 ):
-    points = pd.concat((buffer_points, inside_constraints))
+    """
+    Create the interpolated bathymetry grid. Interpolate data from sparse constraints
+    within the ice shelf area (constraints) and grid points within a buffer zone around
+     the ice shelf. Then merge this grid with grid value from outside the ice shelf.
+     Since the interpolation is only conducted with a thin buffer zone, instead of all
+     of the points outside the shelf, the interpolation is much faster.
+    """
+    points = buffer_and_inside_points
 
-    coords = (points.easting, points.northing)
-    data = points.upward
+    if method == "spline":
+        if weights_col_name is None:
+            weights = None
+        else:
+            weights = points[weights_col_name]
 
-    spline = vd.Spline(
-        damping=1e-20,
-    )
-    spline.fit(
-        coords,
-        data,
-        weights=weights,
-    )
+        coords = (points.easting, points.northing)
+        data = points.upward
 
-    # num = 5
-    # if weights is None:
-    #     damp_num = num -1
-    # else: damp_num = num
+        spline = vd.Spline(
+            damping=damping,
+        )
+        spline.fit(
+            coords,
+            data,
+            weights=weights,
+        )
 
-    # dampings = list(np.logspace(-20, 0, num=damp_num))
-    # mindists = np.linspace(1e-5, 1e3, num)
+        inner_bed = spline.grid(
+            region=region,
+            spacing=spacing,
+        ).scalars
 
-    # if weights is None:
-    #     dampings.insert(0, None)
+    elif method == "surface":
+        blocked = pygmt.blockmean(
+            data=points[["easting", "northing", "upward"]],
+            region=region,
+            spacing=spacing,
+        )
 
-    # with warnings.catch_warnings():
-    #     warnings.simplefilter("ignore", sp.linalg.LinAlgWarning)
-    #     spline = best_SplineCV(
-    #         coordinates = coords,
-    #         data = data,
-    #         weights = weights,
-    #         dampings = dampings,
-    #         mindists = mindists,
-    #         delayed=True,
-    #     )
+        inner_bed = pygmt.surface(
+            # points[["easting","northing","upward"]],
+            blocked,
+            spacing=spacing,
+            region=region,
+            registration="g",
+            tension=tension,
+        ).rename({"x": "easting", "y": "northing"})
 
-    inner_bed = spline.grid(
-        region=region,
-        spacing=spacing,
-    ).scalars
-
+    # merge interpolation of inner / buffer points with outside grid
     bed_from_constraints = xr.where(
         masked_bed.isnull(),
         inner_bed,
         masked_bed,
     )
 
-    # ensure bed doesn't cross ice base
-    if icebase is not None:
-        bed_from_constraints = xr.where(
-            bed_from_constraints > icebase,
-            icebase,
-            bed_from_constraints,
-        )
+    # ensure bed doesn't cross ice base or surface
+    bed_from_constraints = ensure_no_crossing(
+        bed_from_constraints,
+        icebase=icebase,
+        surface=surface,
+    )
 
     if plot is True:
         fig = maps.plot_grd(
             bed_from_constraints,
-            points=inside_constraints.rename(columns={"easting": "x", "northing": "y"}),
+            points=points[points.inside].rename(
+                columns={"easting": "x", "northing": "y"}
+            ),
         )
         fig.show()
 
     return bed_from_constraints
+
+
+def ensure_no_crossing(
+    bed,
+    icebase=None,
+    surface=None,
+):
+    """
+    make sure bed layer doesn't cross icebase or surface
+    """
+    # ensure bed doesn't cross ice base
+    if icebase is not None:
+        bed = xr.where(
+            bed > icebase,
+            icebase,
+            bed,
+        )
+    # ensure bed doesn't cross surface
+    if surface is not None:
+        bed = xr.where(
+            bed > surface,
+            surface,
+            bed,
+        )
+
+    return bed
 
 
 def inversion_varying_gravity(
@@ -603,104 +639,172 @@ def inversion_varying_constraints(
     return final_topo
 
 
-def recalculate_partial_bouguer_anomalies(
+def recalculate_ice_gravity(
     gravity,
     air_density,
     ice_density,
-    water_density,
-    sediment_density,
-    surface_grid,
-    icebase_grid,
+    grid,
 ):
     grav = gravity.copy()
 
-    # surface
-    density = ice_density - air_density
-    surface_prisms = grids_to_prisms(
-        surface=surface_grid,
-        reference=surface_grid.values.mean(),
-        density=xr.where(surface_grid >= surface_grid.values.mean(), density, -density),
-        input_coord_names=["x", "y"],
+    # create prism layer from ellipsoid to ice surface
+    prisms = grids_to_prisms(
+        surface=grid,
+        reference=0,
+        density=xr.where(
+            grid >= 0,
+            ice_density - air_density,
+            air_density - ice_density,
+        ),
     )
-    surface_grav_grid, surface_grav_df = forward_grav_of_prismlayer(
-        [surface_prisms],
-        grav[grav.Gobs.notna()],
-        names=["surface_prisms"],
-        progressbar=False,
+
+    # calculate gravity of prisms
+    _, forward_df = forward_grav_of_prismlayer(
+        [prisms],
+        grav,
+        names=["prisms"],
+        # thickness_threshold=1,
+        progressbar=True,
         plot=False,
     )
-    grav["surface_forward"] = surface_grav_df.forward_total
 
-    # icebase
-    density = water_density - ice_density
-    icebase_prisms = grids_to_prisms(
-        surface=icebase_grid,
-        reference=icebase_grid.values.mean(),
-        density=xr.where(icebase_grid >= icebase_grid.values.mean(), density, -density),
-        input_coord_names=["x", "y"],
-    )
-    icebase_grav_grid, icebase_grav_df = forward_grav_of_prismlayer(
-        [icebase_prisms],
-        grav[grav.Gobs.notna()],
-        names=["icebase_prisms"],
-        progressbar=False,
-        plot=False,
-    )
-    grav["icebase_forward"] = icebase_grav_df.forward_total
-
-    # apply partial bouguer corrections
-    grav["Gobs_corr"] = grav.Gobs - grav.surface_forward - grav.icebase_forward
+    grav["ice_surface_grav"] = forward_df.prisms
 
     return grav
 
 
-def recreate_bed(
-    constraints,
-    region,
-    spacing,
-    bed_buffer_points=None,
-    weights=None,
-    icebase=None,
+def recalculate_water_gravity(
+    gravity,
+    ice_density,
+    water_density,
+    grid,
 ):
-    if bed_buffer_points is None:
-        spline = best_SplineCV(
-            coordinates=(constraints.easting, constraints.northing),
-            data=constraints.upward,
-            weights=weights,
-            dampings=[10**-20],
-            delayed=False,
-        )
-        starting_bed = spline.grid(
-            region=region,
-            spacing=spacing,
-        ).scalars
+    grav = gravity.copy()
 
+    # create prism layer from ellipsoid to water surface
+    prisms = grids_to_prisms(
+        surface=grid,
+        reference=0,
+        density=xr.where(
+            grid >= 0,
+            water_density - ice_density,
+            ice_density - water_density,
+        ),
+    )
+
+    # calculate gravity of prisms
+    _, forward_df = forward_grav_of_prismlayer(
+        [prisms],
+        grav,
+        names=["prisms"],
+        # thickness_threshold=1,
+        progressbar=True,
+        plot=False,
+    )
+
+    grav["water_surface_grav"] = forward_df.prisms
+
+    return grav
+
+
+def recalculate_bed_gravity(
+    gravity,
+    water_density,
+    bed_density,
+    grid,
+):
+    grav = gravity.copy()
+
+    # create prism layer from ellipsoid to water surface
+    prisms = grids_to_prisms(
+        surface=grid,
+        reference=0,
+        density=xr.where(
+            grid >= 0,
+            bed_density - water_density,
+            water_density - bed_density,
+        ),
+    )
+
+    # calculate gravity of prisms
+    _, forward_df = forward_grav_of_prismlayer(
+        [prisms],
+        grav,
+        names=["prisms"],
+        # thickness_threshold=1,
+        progressbar=True,
+        plot=False,
+    )
+
+    grav["starting_bed_grav"] = forward_df.prisms
+
+    return grav, prisms
+
+
+def recreate_bed(
+    inside_points,
+    buffer_points,
+    outside_grid,
+    region,
+    fullres_spacing,
+    layer_spacing,
+    method="spline",
+    damping=10**-20,
+    tension=0.35,
+    icebase=None,
+    surface=None,
+    icebase_fullres=None,
+    surface_fullres=None,
+    use_weights=True,
+):
+    """
+    re-create the starting bed grid
+    """
+
+    # label outside points and set error
+    buffer_points["inside"] = False
+    buffer_points["z_error"] = 10
+
+    # merge buffer and inside points
+    buffer_and_inside_points = pd.concat((buffer_points, inside_points))
+
+    # set weighting values
+    if use_weights:
+        buffer_and_inside_points["weights"] = 1 / (
+            buffer_and_inside_points.z_error**2
+        )
+        weights_col_name = "weights"
     else:
-        # bed inside RIS masked
-        masked_bed = (
-            constraints[~constraints.inside]
-            .set_index(["northing", "easting"])
-            .to_xarray()
-            .upward
-        )
+        weights_col_name = None
+    # create starting bathymetry at full res
+    starting_bed = create_starting_bed(
+        buffer_and_inside_points=buffer_and_inside_points,
+        masked_bed=outside_grid,
+        region=region,
+        spacing=fullres_spacing,
+        method=method,
+        tension=tension,
+        damping=damping,
+        weights_col_name=weights_col_name,
+        icebase=icebase_fullres,
+        surface=surface_fullres,
+    )
 
-        # points within buffer zone
-        buffer_points = pd.merge(
-            constraints.reset_index(),
-            bed_buffer_points[["northing", "easting"]],
-            how="inner",
-        ).set_index("index")
+    # resample to 5k
+    starting_bed = fetch.resample_grid(
+        starting_bed,
+        spacing=layer_spacing,
+        region=region,
+        registration="g",
+        verbose="q",
+    )
 
-        # create starting bathymetry
-        starting_bed = create_starting_bed(
-            buffer_points=buffer_points,
-            inside_constraints=constraints[constraints.inside],
-            masked_bed=masked_bed,
-            region=region,
-            spacing=spacing,
-            icebase=icebase,
-            weights=weights,
-        )
+    # ensure it doesn't cross icebase or surface
+    starting_bed = ensure_no_crossing(
+        starting_bed,
+        icebase=icebase,
+        surface=surface,
+    )
 
     return starting_bed
 
@@ -734,851 +838,6 @@ def recalc_bed_grav(
     grav["bed_forward"] = bed_grav_df.forward_total
 
     return grav, starting_bed_prisms
-
-
-def monte_carlo_full_workflow_uncertainty_loop(
-    fname,
-    runs,
-    grav,
-    constraints,
-    sample_grav=False,
-    sample_constraints=False,
-    sample_tension_factor=False,
-    sample_ice_density=False,
-    sample_water_density=False,
-    sample_sediment_density=False,
-    sample_inner_bound=False,
-    sample_outer_bound=False,
-    sample_solver_damping=False,
-    inversion_args=None,
-    sampled_args=None,
-    plot=False,
-    mask=None,
-    title="Monte Carlo simulation",
-    **kwargs,
-):
-    # if file exists, start and next run, else start at 0
-    try:
-        topos = xr.open_zarr(fname)
-        starting_run = len(topos)
-    except FileNotFoundError:
-        print(f"File {fname} not found, creating new file\n")
-        # create / overwrite pickle files
-        with open(f"{fname[:-5]}_params.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_sampled_values.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "wb") as _:
-            pass
-        starting_run = 0
-
-    if starting_run == runs:
-        print(f"all {runs} runs already complete, loading results from file.")
-    for i in tqdm(range(starting_run, runs)):
-        if i == starting_run:
-            print(
-                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
-                f"{runs}\nsaving results to {fname}\n"
-            )
-
-        # define unsampled values
-        tension_factor = 0.25
-        ice_density = 873.5  # 830 -917, firn closoff to max ice density
-        water_density = 1024
-        sediment_density = 2300
-        inner_bound = 5e3
-        outer_bound = 20e3
-        solver_damping = 0.1
-
-        # create random generator
-        rand = np.random.default_rng(seed=i)
-
-        recalculate_bouguer_anomalies = False
-        recalculate_starting_bed = False
-        recalculate_bed_gravity = False
-        recalculate_regional = False
-        recalculate_weights = False
-
-        sampled_args = {}
-
-        # if gravity resampled, must recalculate regional
-        if sample_grav is True:
-            sampled_grav = grav.copy()
-            Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
-            Gobs_corr_sampled = rand.normal(sampled_grav.Gobs_corr, sampled_grav.uncert)
-            sampled_grav["Gobs"] = Gobs_sampled
-            sampled_grav["Gobs_corr"] = Gobs_corr_sampled
-            gravity_df = sampled_grav.copy()
-            recalculate_regional = True
-        elif sample_grav is False:
-            gravity_df = grav.copy()
-
-        # if constraints resampled, must recalculate starting bed,
-        # recalculate bed gravity, and recalculate regional
-        if sample_constraints is True:
-            sampled_constraints = constraints.drop(columns="upward").copy()
-            sampled_constraints["upward"] = rand.uniform(
-                sampled_constraints.low_lim, sampled_constraints.high_lim
-            )
-            constraint_points = sampled_constraints.copy()
-            recalculate_starting_bed = True
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_constraints is False:
-            constraint_points = constraints.copy()
-
-        # if tension factor resampled, must recalculate region
-        if sample_tension_factor is True:
-            sampled_args["tension_factor"] = rand.uniform(0, 0.99)
-            recalculate_regional = True
-        elif sample_tension_factor is False:
-            sampled_args["tension_factor"] = tension_factor
-
-        # if ice density resampled, must recalculate bouguer anomalies and regional
-        if sample_ice_density is True:
-            sampled_args["ice_density"] = rand.normal(
-                873.5, 5
-            )  # 5 from Hawley et al. 2004
-            recalculate_bouguer_anomalies = True
-            recalculate_regional = True
-        elif sample_ice_density is False:
-            sampled_args["ice_density"] = ice_density
-
-        # if water density resampled, must recalculate bouguer anomalies,
-        # bed gravity and regional
-        if sample_water_density is True:
-            sampled_args["water_density"] = rand.normal(1024, 5)
-            recalculate_bouguer_anomalies = True
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_water_density is False:
-            sampled_args["water_density"] = water_density
-
-        # if sediment density resampled, must recalculate bed gravity and regional
-        if sample_sediment_density is True:
-            sampled_args["sediment_density"] = rand.normal(2300, 400)
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_sediment_density is False:
-            sampled_args["sediment_density"] = sediment_density
-
-        # if inner bounds are resampled, must recalculate weights grid
-        if sample_inner_bound is True:
-            sampled_args["inner_bound"] = rand.uniform(1e3, 10e3)
-            recalculate_weights = True
-        elif sample_inner_bound is False:
-            sampled_args["inner_bound"] = inner_bound
-
-        # if outer bounds are resampled, must recalculate weights grid
-        if sample_outer_bound is True:
-            sampled_args["outer_bound"] = rand.uniform(10e3, 30e3)
-            recalculate_weights = True
-        elif sample_outer_bound is False:
-            sampled_args["outer_bound"] = outer_bound
-
-        # if solver damping is resampled, include in inversion args
-        if sample_solver_damping is True:
-            sampled_args["solver_damping"] = rand.uniform(0, 1)
-        elif sample_solver_damping is False:
-            sampled_args["solver_damping"] = solver_damping
-
-        if recalculate_starting_bed is True:
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        if recalculate_bouguer_anomalies is True:
-            recalculate_regional = True
-        if recalculate_bed_gravity is True:
-            recalculate_regional = True
-
-        if i == starting_run:
-            verbose = None
-        else:
-            verbose = "q"
-
-        # run inversion
-        topo, results = monte_carlo_full_workflow_uncertainty(
-            constraints=constraint_points,
-            gravity_df=gravity_df,
-            recalculate_bouguer_anomalies=recalculate_bouguer_anomalies,
-            recalculate_starting_bed=recalculate_starting_bed,
-            recalculate_bed_gravity=recalculate_bed_gravity,
-            recalculate_regional=recalculate_regional,
-            recalculate_weights=recalculate_weights,
-            inversion_args=inversion_args,
-            sampled_args=sampled_args,
-            verbose=verbose,
-            **kwargs,
-        )
-
-        # rename grid with run number
-        topo = topo.to_dataset(name=f"run_{i}")
-
-        if i == 0:
-            mode = "w"
-        else:
-            mode = "a"
-
-        enc = {x: {"compressor": zarr.Blosc()} for x in topo}
-        topo.to_zarr(
-            fname,
-            encoding=enc,
-            mode=mode,
-        )
-
-        # get gravity data
-        grav_df = results[1]
-
-        # get parameters
-        params = results[2]
-
-        # save parameters
-        with open(f"{fname[:-5]}_params.pickle", "ab") as file:
-            pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_sampled_values.pickle", "ab") as file:
-            pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "ab") as file:
-            pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-        print(f"Finished inversion {i+1} of {runs}")
-
-    # load pickle files
-    params = []
-    with open(f"{fname[:-5]}_params.pickle", "rb") as file:
-        while 1:
-            try:
-                params.append(pickle.load(file))
-            except EOFError:
-                break
-    values = []
-    with open(f"{fname[:-5]}_sampled_values.pickle", "rb") as file:
-        while 1:
-            try:
-                values.append(pickle.load(file))
-            except EOFError:
-                break
-    grav_dfs = []
-    with open(f"{fname[:-5]}_grav_dfs.pickle", "rb") as file:
-        while 1:
-            try:
-                grav_dfs.append(pickle.load(file))
-            except EOFError:
-                break
-
-    # get final gravity residual RMSE of each model
-    residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
-
-    # convert residuals into weights
-    weights = [1 / (x**2) for x in residuals]
-
-    # load dataset with all the topo models
-    topos = xr.open_zarr(fname)
-
-    # get stats on the ensemble
-    stats = model_ensemble_stats(topos, weights=weights)
-    merged, z_mean, z_stdev, weighted_mean, weighted_stdev, z_min, z_max = stats
-
-    if plot is True:
-        grd = weighted_stdev
-        if mask is not None:
-            grd = utils.mask_from_shp(
-                shapefile=mask, xr_grid=grd, masked=True, invert=False
-            )
-        fig = maps.plot_grd(
-            grd,
-            cmap="inferno",
-            reverse_cpt=True,
-            robust=True,
-            hist=True,
-            cbar_label="weighted standard deviation (m)",
-            title=title,
-        )
-        fig.plot(
-            x=constraints.easting,
-            y=constraints.northing,
-            fill="black",
-            style="c.01c",
-        )
-        fig.plot(
-            x=constraints[constraints.inside].easting,
-            y=constraints[constraints.inside].northing,
-            fill="white",
-            pen=".3p,black",
-            style="c.08c",
-            label="Bed constraints",
-        )
-        fig.legend()
-        fig.show()
-
-    return topos, params, values, grav_dfs
-
-
-def monte_carlo_inversion_uncertainty_loop(
-    fname,
-    runs,
-    grav,
-    constraints,
-    sample_grav=False,
-    sample_constraints=False,
-    sample_water_density=False,
-    sample_sediment_density=False,
-    inversion_args=None,
-    sampled_args=None,
-    starting_args=None,
-    plot=False,
-    mask=None,
-    title="Monte Carlo simulation",
-    **kwargs,
-):
-    # if file exists, start and next run, else start at 0
-    try:
-        topos = xr.open_zarr(fname)
-        starting_run = len(topos)
-    except FileNotFoundError:
-        print(f"File {fname} not found, creating new file\n")
-        # create / overwrite pickle files
-        with open(f"{fname[:-5]}_params.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_sampled_values.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "wb") as _:
-            pass
-        starting_run = 0
-
-    if starting_run == runs:
-        print(f"all {runs} runs already complete, loading results from file.")
-    for i in tqdm(range(starting_run, runs)):
-        if i == starting_run:
-            print(
-                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
-                f"{runs}\nsaving results to {fname}\n"
-            )
-
-        # create random generator
-        rand = np.random.default_rng(seed=i)
-
-        recalculate_starting_bed = False
-        recalculate_bed_gravity = False
-        recalculate_regional = False
-
-        sampled_args = {}
-
-        # if gravity resampled, must recalculate misfit and regional
-        if sample_grav is True:
-            sampled_grav = grav.copy()
-            Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
-            sampled_grav["Gobs"] = Gobs_sampled
-            gravity_df = sampled_grav.copy()
-            recalculate_regional = True
-        elif sample_grav is False:
-            gravity_df = grav.copy()
-
-        # if constraints resampled, must recalculate starting bed,
-        # recalculate bed gravity, and recalculate regional
-        if sample_constraints is True:
-            sampled_constraints = constraints.drop(columns="upward").copy()
-            sampled_constraints["upward"] = rand.uniform(
-                sampled_constraints.low_lim, sampled_constraints.high_lim
-            )
-            constraint_points = sampled_constraints.copy()
-            recalculate_starting_bed = True
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_constraints is False:
-            constraint_points = constraints.copy()
-
-        # if water density resampled, must recalculate bed gravity and regional
-        if sample_water_density is True:
-            sampled_args["water_density"] = rand.normal(
-                starting_args.get("water_density"), 5
-            )
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_water_density is False:
-            sampled_args["water_density"] = starting_args.get("water_density")
-
-        # if sediment density resampled, must recalculate bed gravity and regional
-        if sample_sediment_density is True:
-            sampled_args["sediment_density"] = rand.normal(
-                starting_args.get("sediment_density"), 400
-            )
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_sediment_density is False:
-            sampled_args["sediment_density"] = starting_args.get("sediment_density")
-
-        if recalculate_starting_bed is True:
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        if recalculate_bed_gravity is True:
-            recalculate_regional = True
-
-        if i == starting_run:
-            verbose = None
-        else:
-            verbose = "q"
-
-        # run inversion
-        topo, results = monte_carlo_inversion_uncertainty(
-            constraints=constraint_points,
-            gravity_df=gravity_df,
-            recalculate_starting_bed=recalculate_starting_bed,
-            recalculate_bed_gravity=recalculate_bed_gravity,
-            recalculate_regional=recalculate_regional,
-            inversion_args=inversion_args,
-            sampled_args=sampled_args,
-            verbose=verbose,
-            **kwargs,
-        )
-
-        # rename grid with run number
-        topo = topo.to_dataset(name=f"run_{i}")
-
-        if i == 0:
-            mode = "w"
-        else:
-            mode = "a"
-
-        enc = {x: {"compressor": zarr.Blosc()} for x in topo}
-        topo.to_zarr(
-            fname,
-            encoding=enc,
-            mode=mode,
-        )
-
-        # get gravity data
-        grav_df = results[1]
-
-        # get parameters
-        params = results[2]
-
-        # save parameters
-        with open(f"{fname[:-5]}_params.pickle", "ab") as file:
-            pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_sampled_values.pickle", "ab") as file:
-            pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "ab") as file:
-            pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-        print(f"Finished inversion {i+1} of {runs}")
-
-    # load pickle files
-    params = []
-    with open(f"{fname[:-5]}_params.pickle", "rb") as file:
-        while 1:
-            try:
-                params.append(pickle.load(file))
-            except EOFError:
-                break
-    values = []
-    with open(f"{fname[:-5]}_sampled_values.pickle", "rb") as file:
-        while 1:
-            try:
-                values.append(pickle.load(file))
-            except EOFError:
-                break
-    grav_dfs = []
-    with open(f"{fname[:-5]}_grav_dfs.pickle", "rb") as file:
-        while 1:
-            try:
-                grav_dfs.append(pickle.load(file))
-            except EOFError:
-                break
-
-    # get final gravity residual RMSE of each model
-    residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
-
-    # convert residuals into weights
-    weights = [1 / (x**2) for x in residuals]
-
-    # load dataset with all the topo models
-    topos = xr.open_zarr(fname)
-
-    # get stats on the ensemble
-    stats = model_ensemble_stats(topos, weights=weights)
-    merged, z_mean, z_stdev, weighted_mean, weighted_stdev, z_min, z_max = stats
-
-    if plot is True:
-        grd = weighted_stdev
-        if mask is not None:
-            grd = utils.mask_from_shp(
-                shapefile=mask, xr_grid=grd, masked=True, invert=False
-            )
-        fig = maps.plot_grd(
-            grd,
-            cmap="inferno",
-            reverse_cpt=True,
-            robust=True,
-            hist=True,
-            cbar_label="weighted standard deviation (m)",
-            title=title,
-        )
-        fig.plot(
-            x=constraints.easting,
-            y=constraints.northing,
-            fill="black",
-            style="c.01c",
-        )
-        fig.plot(
-            x=constraints[constraints.inside].easting,
-            y=constraints[constraints.inside].northing,
-            fill="white",
-            pen=".3p,black",
-            style="c.08c",
-            label="Bed constraints",
-        )
-        fig.legend()
-        fig.show()
-
-    return topos, params, values, grav_dfs
-
-
-def model_ensemble_stats(
-    dataset,
-    weights=None,
-):
-    da_list = [dataset[i] for i in list(dataset)]
-
-    merged = (
-        xr.concat(da_list, dim="runs")
-        .assign_coords({"runs": list(dataset)})
-        .rename("run_num")
-        .to_dataset()
-    )
-
-    z_mean = merged["run_num"].mean("runs").rename("z_mean")
-    z_min = merged["run_num"].min("runs").rename("z_min")
-    z_max = merged["run_num"].max("runs").rename("z_maxn")
-    z_stdev = merged["run_num"].std("runs").rename("z_std")
-    # z_var = merged["run_num"].var("runs").rename("z_var")
-
-    if weights is not None:
-        assert len(da_list) == len(weights)
-
-        weighted_mean = sum(g * w for g, w in zip(da_list, weights)) / sum(weights)
-
-        # from https://stackoverflow.com/questions/30383270/how-do-i-calculate-the-standard-deviation-between-weighted-measurements # noqa
-        weighted_var = (
-            sum(w * (g - weighted_mean) ** 2 for g, w in zip(da_list, weights))
-        ) / sum(weights)
-        weighted_stdev = np.sqrt(weighted_var)
-
-    else:
-        weighted_mean = None
-        weighted_stdev = None
-        # weighted_var = None
-
-    return (
-        merged,
-        z_mean,
-        z_stdev,
-        weighted_mean,
-        weighted_stdev,
-        z_min,
-        z_max,
-        # z_var, weighted_var,
-    )
-
-
-def monte_carlo_full_workflow_uncertainty(
-    constraints,
-    gravity_df,
-    recalculate_bouguer_anomalies=False,
-    recalculate_starting_bed=False,
-    recalculate_bed_gravity=False,
-    recalculate_regional=False,
-    recalculate_weights=False,
-    inversion_args=None,
-    sampled_args=None,
-    verbose=None,
-    **kwargs,
-):
-    """
-    Run all portions of the inversion workflow which rely on constraints or gravity and
-    return the resulting inverted bathymetry.
-
-    to include layer densities in the MC analysis provide densities and grids in
-    `forward_grav_args` else, column `Gobs_corr` must be in gravity dataframe
-
-    to include constraints in the MC analysis, provide "constraint_args", else,
-    starting_bed must be provided and "bef_forward" must be in the gravity dataframe
-
-    to include gravity data in the MC analysis, provide "gravity_args", else,
-
-
-    """
-
-    grav = gravity_df.copy()
-
-    # re-calculate surface / icebase gravities
-    if recalculate_bouguer_anomalies is False:
-        assert all(item in grav.columns for item in ["Gobs_corr"]), (
-            "if recalculate_bouguer_anomalies is False,"
-            " 'Gobs_corr' must be in gravity dataframe"
-        )
-    else:
-        if verbose != "q":
-            print("Recalculating bouguer anomalies")
-        grav.drop(
-            columns=[
-                "surface_forward",
-                "icebase_forward",
-                "Gobs_corr",
-                "misfit",
-                "reg",
-                "res",
-            ],
-            inplace=True,
-            errors="ignore",
-        )
-        with HiddenPrints():
-            grav = recalculate_partial_bouguer_anomalies(
-                gravity=grav,
-                air_density=1,
-                ice_density=sampled_args.get("ice_density"),
-                water_density=sampled_args.get("water_density"),
-                sediment_density=sampled_args.get("sediment_density"),
-                surface_grid=kwargs.get("surface_fullres"),
-                icebase_grid=kwargs.get("icebase_fullres"),
-            )
-
-    # re-create starting bed
-    if recalculate_starting_bed is False:
-        starting_bed = kwargs.get("starting_bed", None)
-    else:
-        # recalculate the starting bed with the provided constraints
-        if verbose != "q":
-            print("Recalculating starting bed")
-        with HiddenPrints():
-            starting_bed = recreate_bed(
-                constraints=constraints,
-                bed_buffer_points=kwargs.get("bed_buffer_points"),
-                region=kwargs.get("buffer_region"),
-                spacing=kwargs.get("layer_spacing"),
-                icebase=kwargs.get("icebase_lowres"),
-            )
-        recalculate_bed_gravity = True
-
-    # recalculate bed gravity
-    if recalculate_bed_gravity is False:
-        assert all(item in grav.columns for item in ["bed_forward"]), (
-            "if recalculate_bed_gravity is False, 'bed_forward' must be in gravity"
-            "dataframe"
-        )
-        starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
-        if starting_bed_prisms is None:
-            raise TypeError(
-                (
-                    "If recalculate_bed_gravity is False, must "
-                    "provide prisms layer with `starting_bed_prisms`"
-                )
-            )
-    else:
-        if verbose != "q":
-            print("Recalculating bed gravity")
-        grav.drop(
-            columns=["bed_forward", "misfit", "reg", "res"],
-            inplace=True,
-            errors="ignore",
-        )
-        with HiddenPrints():
-            grav, starting_bed_prisms = recalc_bed_grav(
-                gravity=grav,
-                starting_bed=starting_bed,
-                water_density=sampled_args.get("water_density"),
-                sediment_density=sampled_args.get("sediment_density"),
-            )
-    # recalculate regional seperation
-    if recalculate_regional is False:
-        assert all(item in grav.columns for item in ["Gobs_corr_shift", "res"]), (
-            "if recalculate_regional is False, 'Gobs_corr_shift'"
-            " and 'res' must be in gravity dataframe"
-        )
-        anomalies = grav
-    else:
-        if verbose != "q":
-            print("Recalculating regional field")
-        grav.drop(columns=["res", "reg", "misfit"], inplace=True, errors="ignore")
-        with HiddenPrints():
-            anomalies = regional.regional_seperation(
-                input_grav=grav,
-                grav_spacing=kwargs.get("grav_spacing"),
-                regional_method="constraints",
-                constraints=constraints,
-                input_forward_column="bed_forward",
-                input_grav_column="Gobs_corr",
-                inversion_region=kwargs.get("inversion_region"),
-                tension_factor=sampled_args.get("tension_factor"),
-            )
-
-    # recalculate weights grid
-    if recalculate_weights is False:
-        weights_grid = kwargs.get("weights_grid", None)
-        if (inversion_args.get("apply_weights") is True) & (weights_grid is None):
-            raise TypeError(
-                "If recalculate_weights is False, must provide grid with kwarg"
-                "`weights_grids`"
-            )
-    else:
-        if verbose != "q":
-            print("Recalculating weights grid")
-        with HiddenPrints():
-            weights_grid, _ = constraints_grid(
-                constraint_points=constraints,
-                grid=starting_bed_prisms,
-                inner_bound=sampled_args.get("inner_bound"),
-                outer_bound=sampled_args.get("outer_bound"),
-                low=0,
-                high=1,
-                between=np.nan,
-                region=kwargs.get("inversion_region"),
-                interp_type="spline",
-                efficient_interp=True,
-                efficient_interp_dist=kwargs.get("layer_spacing"),
-                epsg=None,
-                plot=False,
-            )
-
-    # add weights grid to starting prisms
-    if inversion_args.get("apply_weights") is True:
-        starting_bed_prisms["weights"] = weights_grid
-    if inversion_args.get("weights_after_solving") is True:
-        starting_bed_prisms["weights"] = weights_grid
-
-    # run inversion
-    with HiddenPrints():
-        results = inv.geo_inversion(
-            input_grav=anomalies,
-            prism_layer=starting_bed_prisms,
-            solver_damping=sampled_args.get("solver_damping"),
-            **inversion_args,
-        )
-
-    # get final topography
-    final_topo = (
-        results[0]
-        .set_index(["northing", "easting"])
-        .to_xarray()[results[0].columns[-1]]
-    )
-
-    return final_topo, results
-
-
-def monte_carlo_inversion_uncertainty(
-    constraints,
-    gravity_df,
-    recalculate_starting_bed=False,
-    recalculate_bed_gravity=False,
-    recalculate_regional=False,
-    inversion_args=None,
-    sampled_args=None,
-    verbose=None,
-    **kwargs,
-):
-    """
-    Run all portions of the inversion workflow which rely on constraints or gravity and
-    return the resulting inverted bathymetry.
-
-    to include layer densities in the MC analysis provide densities and grids in
-    `forward_grav_args` else, column `Gobs_corr` must be in gravity dataframe
-
-    to include constraints in the MC analysis, provide "constraint_args", else,
-    starting_bed must be provided and "bef_forward" must be in the gravity dataframe
-
-    to include gravity data in the MC analysis, provide "gravity_args", else,
-    """
-
-    grav = gravity_df.copy()
-
-    # re-create starting bed
-    if recalculate_starting_bed is False:
-        starting_bed = kwargs.get("starting_bed", None)
-    else:
-        # recalculate the starting bed with the provided constraints
-        if verbose != "q":
-            print("Recalculating starting bed")
-        with HiddenPrints():
-            starting_bed = recreate_bed(
-                constraints=constraints,
-                bed_buffer_points=kwargs.get("bed_buffer_points", None),
-                region=kwargs.get("buffer_region"),
-                spacing=kwargs.get("layer_spacing"),
-                icebase=kwargs.get("icebase_lowres", None),
-                weights=kwargs.get("constraint_weights_col", None),
-            )
-        recalculate_bed_gravity = True
-
-    # recalculate bed gravity
-    if recalculate_bed_gravity is False:
-        assert all(item in grav.columns for item in ["bed_forward"]), (
-            "if recalculate_bed_gravity is False, 'bed_forward' must be in gravity"
-            "dataframe"
-        )
-        starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
-        if starting_bed_prisms is None:
-            raise TypeError(
-                (
-                    "If recalculate_bed_gravity is False, must "
-                    "provide prisms layer with `starting_bed_prisms`"
-                )
-            )
-    else:
-        if verbose != "q":
-            print("Recalculating bed gravity")
-        grav.drop(
-            columns=["bed_forward", "misfit", "reg", "res"],
-            inplace=True,
-            errors="ignore",
-        )
-        with HiddenPrints():
-            grav, starting_bed_prisms = recalc_bed_grav(
-                gravity=grav,
-                starting_bed=starting_bed,
-                water_density=sampled_args.get("water_density"),
-                sediment_density=sampled_args.get("sediment_density"),
-            )
-    # recalculate regional seperation
-    if recalculate_regional is False:
-        assert all(item in grav.columns for item in ["Gobs_shift", "res"]), (
-            "if recalculate_regional is False, 'Gobs_shift'"
-            " and 'res' must be in gravity dataframe"
-        )
-        anomalies = grav
-    else:
-        if verbose != "q":
-            print("Recalculating regional field")
-        grav.drop(columns=["res", "reg", "misfit"], inplace=True, errors="ignore")
-        with HiddenPrints():
-            anomalies = regional.regional_seperation(
-                input_grav=grav,
-                grav_spacing=kwargs.get("grav_spacing"),
-                regional_method="constraints",
-                constraints=constraints,
-                input_forward_column="bed_forward",
-                input_grav_column="Gobs",
-                inversion_region=kwargs.get("inversion_region"),
-                grid_method="verde",
-                dampings=kwargs.get("dampings"),
-                constraint_weights_col=kwargs.get("constraints_weights_col"),
-            )
-    # add weights grid to starting prisms
-    starting_bed_prisms["weights"] = kwargs.get("weights_grid")
-
-    # run inversion
-    with HiddenPrints():
-        results = inv.geo_inversion(
-            input_grav=anomalies,
-            prism_layer=starting_bed_prisms,
-            **inversion_args,
-        )
-
-    # get final topography
-    final_topo = (
-        results[0]
-        .set_index(["northing", "easting"])
-        .to_xarray()[results[0].columns[-1]]
-    )
-
-    return final_topo, results
 
 
 def split_gravity_test_train(
@@ -2488,8 +1747,11 @@ def eq_sources_score(params, coordinates, data, delayed=False, **kwargs):
             coordinates,
             data,
             delayed=delayed,
+            weights=kwargs.get("weights", None),
         )
     )
+    # eqs.fit(coordinates, data, weights=kwargs.get("weights", None))
+    # score = eqs.score(coordinates, data, weights=kwargs.get("weights", None))
 
     return score
 
@@ -2708,6 +1970,7 @@ def optimize_eq_source_params(
         data=data,
         damping_limits=damping_limits,
         depth_limits=depth_limits,
+        parallel=True,
         **eq_kwargs,
     )
 
@@ -2739,7 +2002,7 @@ def optimize_eq_source_params(
         damping=study.best_params.get("damping"),
         depth=study.best_params.get("depth"),
         **eq_kwargs,
-    ).fit(coordinates, data)
+    ).fit(coordinates, data, weights=eq_kwargs.get("weights"))
 
     if plot is True:
         plotting.plot_optuna_inversion_figures(
@@ -3294,7 +2557,6 @@ def enforce_confining_surface(
                 number_enforced += 1
                 df[f"iter_{iteration_number}_correction"][i] = df.max_change_above[i]
         print(f"enforced upper confining surface at {number_enforced} prisms")
-
     if "lower_bounds" in df:
         # get max change in downwards direction for each prism
         df["max_change_below"] = df.surface - df.lower_bounds
@@ -3400,6 +2662,7 @@ def add_updated_prism_properties(
     }
 
     df = pd.concat([df, pd.DataFrame(dict_of_cols)], axis=1)
+    df["surface"] = prisms_iter.surface
 
     return df
 
