@@ -2,6 +2,10 @@
 results/*
 !results/.gitkeep
 
+# data
+data/*
+!data/.gitkeep
+
 synthetic_data/*
 !synthetic_data/.gitkeep
 # inversion layers
