@@ -718,6 +718,7 @@ def constraint_layout_number(
         fig = maps.basemap(
             fig_height=8,
             region=region,
+            frame=True,
         )
 
         fig.plot(
@@ -813,6 +814,7 @@ def constraint_layout_spacing(
         fig = maps.basemap(
             fig_height=8,
             region=region,
+            frame=True,
         )
 
         fig.plot(

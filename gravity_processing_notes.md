@@ -106,10 +106,6 @@ Disturbance vs Anomaly
 * Disturbance is difference between observed and normal gravity, both on the ellipsoid, at the same point
     * this is used by geophysics to model the subsurface
 
-This can result in a discrepancy of over 10mGal! (Oliveira et al. 2018; Should geophysicists use the gravity disturbance or the anomaly?)
+This can result in a discrepancy of over 10mGal (Oliveira et al. 2018; Should geophysicists use the gravity disturbance or the anomaly?)
 
 Use a closed-form normal gravity formula to get the normal gravity at the observation point on the ellipsoid. Subtract it from the observed gravity to get the gravity disturbance. Observed gravity should be the signal only from the gravitational attraction of every massive body in the Earth (should it include the Eotvos correction?)
-
-
-## Bouguer Anomaly
-

@@ -1,0 +1,15 @@
+# Ross Sea semi-synthetic gravity inversion
+
+This folder contains all the notebooks relevant to performing a gravity inversion to recover the bathymetry for a semi-synthetic model of the Ross Sea. This code is used for Chapter 3 of this thesis.
+
+## Synthetic gravity and starting bathymetry model
+`Ross_Sea_synthetic_model.ipynb` downloads IBCSO bathymetry and ANTOSTRAT basement data for the Ross Sea. From this, the synthetic observed gravity data is created from the forward gravity calculations of these grids. A synthetic airborne survey is created by sampling this gravity data onto flight paths and adding noise. To simulate having limited knowledge of the bathymetry prior to the inversion, a low-resolution version of the IBCSO data is created. A semi-regular grid of constraint points is used to sampled the IBCSO values inside of a synthetic ice shelf border. Outside of this ice shelf border the full-resolution IBCSO grid is used. The entire region is then interpolated creating the starting bathymetry model.
+
+## Run the inversion
+`Ross_Sea_synthetic_inversion.ipynb` uses this starting bathymetry and the synthetic airborne gravity survey data to recover the Ross Sea bathymetry with an inversion. First the regional component of gravity (resulting from the basement surface) is estimated and removed. Then a series of cross-validated inversions are performed. These include with the full-resolution gravity data (not sampled onto flight lines), both with and without noise, and the synthetic airborne survey data, both with and without noise.
+
+## Run ensembles of inversions
+`Ross_Sea_ensemble.ipynb` runs two ensemble of inversions. The first tests the effects on the inverted bathymetry resulting from flight line spacing (resolution) and the level of noise in the gravity data. This runs 100 inversions from the combination of 10 levels of noise in the gravity data and 10 values of flight line spacing. The inverted bathymetries are then compared to the full resolution IBCSO bathymetry to assess their performance. The second ensemble tests the effects of the spacing of constraint points within the ice shelf. For this, 10 inversions were performed using various numbers of equally spaced constraints within the ice shelf.
+
+## Run the Monte Carlo simulations
+`Ross_Sea_montecarlo_uncertainties.ipynb` performs several Monte Carlo simulations. The "full" simulation involves the random sampling of the gridding gravity disturbance data and constraint point depths, and the Latin Hypercube sampling of the density contrast of the seafloor. With these sampled inversion inputs, 20 full inversion worflows are run (create starting bed, remove the regional component, perform cross-validated inversion) and the resulting 20 bathymetry models are used to calculate cell-specific statistics. This Monte Carlo simulation is repeated with the individual sampling of 1) the gravity data, 2) the constraint points, and 3) the density contrast value. These additional simulation reveal the components of the total uncertainties which results from these aspects of the inversion.

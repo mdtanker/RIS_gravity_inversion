@@ -808,7 +808,6 @@ def geo_inversion(
 
     density_contrast = prisms_ds.density.values.max()
     zref = prisms_ds.top.values.min()
-    assert zref == 0
 
     # add starting surface to dataset
     surface_grid = xr.where(prisms_ds.density > 0, prisms_ds.top, prisms_ds.bottom)
@@ -1135,12 +1134,10 @@ def inversion_RMSE(
         if plot:
             if plot_type == "xarray":
                 cmap = "gist_earth"
-                reverse_cpt = False
                 diff_cmap = "RdBu_r"
             else:
-                cmap = "rain"
-                reverse_cpt = True
-                diff_cmap = "vik+h0"
+                cmap = "batlowW"
+                diff_cmap = "balance+h0"
 
             _ = utils.grd_compare(
                 true_da,
@@ -1158,7 +1155,6 @@ def inversion_RMSE(
                 plot_type=plot_type,
                 cmap=cmap,
                 diff_cmap=diff_cmap,
-                reverse_cpt=reverse_cpt,
                 hist=True,
                 cbar_yoffset=1.5,
                 inset=False,
@@ -1295,7 +1291,7 @@ def inversion_optimal_parameters(
     """
     Calculate the optimal damping parameter, defined as the value which gives the lowest
     MSE between the testing gravity data, and the predict gravity data after and
-    inversion. Follows methods of Uieda and Barbosa 2017.
+    inversion. Follows method of Uieda and Barbosa 2017.
     """
     train = training_data.copy()
     test = testing_data.copy()

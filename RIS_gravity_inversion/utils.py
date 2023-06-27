@@ -712,15 +712,16 @@ def recalculate_bed_gravity(
     water_density,
     bed_density,
     grid,
+    reference=0,
 ):
     grav = gravity.copy()
 
     # create prism layer from ellipsoid to water surface
     prisms = grids_to_prisms(
         surface=grid,
-        reference=0,
+        reference=reference,
         density=xr.where(
-            grid >= 0,
+            grid >= reference,
             bed_density - water_density,
             water_density - bed_density,
         ),
@@ -746,8 +747,8 @@ def recreate_bed(
     buffer_points,
     outside_grid,
     region,
-    fullres_spacing,
     layer_spacing,
+    fullres_spacing=None,
     method="spline",
     damping=10**-20,
     tension=0.35,
@@ -756,14 +757,15 @@ def recreate_bed(
     icebase_fullres=None,
     surface_fullres=None,
     use_weights=True,
+    outside_error=10,
+    no_buffer_zone=False,
 ):
     """
     re-create the starting bed grid
     """
-
     # label outside points and set error
     buffer_points["inside"] = False
-    buffer_points["z_error"] = 10
+    buffer_points["z_error"] = outside_error
 
     # merge buffer and inside points
     buffer_and_inside_points = pd.concat((buffer_points, inside_points))
@@ -776,12 +778,15 @@ def recreate_bed(
         weights_col_name = "weights"
     else:
         weights_col_name = None
+    
+    if fullres_spacing is None:
+        spacing = layer_spacing
     # create starting bathymetry at full res
     starting_bed = create_starting_bed(
         buffer_and_inside_points=buffer_and_inside_points,
         masked_bed=outside_grid,
         region=region,
-        spacing=fullres_spacing,
+        spacing=spacing,
         method=method,
         tension=tension,
         damping=damping,
@@ -791,13 +796,14 @@ def recreate_bed(
     )
 
     # resample to 5k
-    starting_bed = fetch.resample_grid(
-        starting_bed,
-        spacing=layer_spacing,
-        region=region,
-        registration="g",
-        verbose="q",
-    )
+    if fullres_spacing != layer_spacing:
+        starting_bed = fetch.resample_grid(
+            starting_bed,
+            spacing=layer_spacing,
+            region=region,
+            registration="g",
+            verbose="q",
+        )
 
     # ensure it doesn't cross icebase or surface
     starting_bed = ensure_no_crossing(

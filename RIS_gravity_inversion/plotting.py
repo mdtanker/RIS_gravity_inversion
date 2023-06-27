@@ -38,6 +38,8 @@ def plot_inversion_ensemble_results_profile(
     map_buffer=0.01,
     plot_regional_error=True,
     absolute_bed_error=False,
+    layers_frame=None,
+    data_frame=None,
     **kwargs,
 ):
     # turn dataframe into datasets
@@ -118,17 +120,21 @@ def plot_inversion_ensemble_results_profile(
 
     if constraints is not None:
         constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
-
-    fig = profile.plot_profile(
+    
+    if layers_frame is None:
+        layers_frame = ["nesW", "xafg", "ya+lbed error (m)"]
+    if data_frame is None:
+        data_frame = ["neSW", "ya+lregional error (mGal)", "xag+lDistance (m)"]
+        
+    fig, df_layers, df_data = profile.plot_profile(
         "points",
         fig_height=8,
+        data_height=3.5,
         start=start,
         stop=stop,
         num=1000,
-        fill_layers=False,
-        data_height=4,
-        # subplot_orientation='horizontal',
         subplot_orientation="vertical",
+
         add_map=True,
         map_background=background,
         map_cmap="batlowW",
@@ -136,19 +142,28 @@ def plot_inversion_ensemble_results_profile(
         gridlines=False,
         coast=False,
         map_buffer=map_buffer,
-        data_dict=data_dict,
-        layers_dict=layers_dict,
-        share_yaxis=True,
-        # layer_pen=[3] + [2.6-(.4*x) for x in range(len(layers_dict.items())-1)],
-        # data_pen=[3] + [2.6-(.4*x) for x in range(len(data_dict.items())-1)],
-        frame=True,
         map_points=constraints,
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
+
+        data_dict=data_dict,
+        share_yaxis=True,
+        data_frame=data_frame,
+        # data_pen_thickness=[1, 1.5, 1],
+        # data_pen_style=[None,None,"4_2:2p"],
+
+        layers_dict=layers_dict,
+        fill_layers=False,
+        layers_frame=layers_frame,
+        # layer_pen_thickness=[1, 1.5, 1],
+        # layers_pen_style=[None,None,"4_2:2p"],
+
+        frame=True,
+        start_label="A",
+        end_label="A' ",
         **kwargs,
     )
-
     return fig
 
 
@@ -162,6 +177,8 @@ def plot_regional_gridding_ensemble_profile(
     constraints=None,
     background=None,
     map_buffer=0.01,
+    layers_frame=None,
+    data_frame=None,
     **kwargs,
 ):
     # turn dataframe into datasets
@@ -225,38 +242,50 @@ def plot_regional_gridding_ensemble_profile(
         method = "points"
     else:
         method = "polyline"
-
-    fig = profile.plot_profile(
-        method=method,
+    
+    if layers_frame is None:
+        layers_frame = ["nesW", "xafg", "ya+lelevation (m)"]
+    if data_frame is None:
+        data_frame = ["neSW", "ya+lgravity (mGal)", "xag+lDistance (m)"]
+        
+    fig, df_layers, df_data = profile.plot_profile(
+        "points",
+        fig_height=8,
+        data_height=4,
         start=start,
         stop=stop,
-        polyline=polyline,
-        # num=1000,
-        fig_height=8,
-        fill_layers=False,
-        data_height=4,
-        # subplot_orientation='horizontal',
+        num=1000,
         subplot_orientation="vertical",
+
         add_map=True,
         map_background=background,
-        map_cmap="viridis",
+        map_cmap="batlowW",
         inset=False,
         gridlines=False,
         coast=False,
         map_buffer=map_buffer,
-        data_dict=data_dict,
-        layers_dict=layers_dict,
-        share_yaxis=True,
-        # layer_pen=[3] + [2.6-(.4*x) for x in range(len(layers_dict.items())-1)],
-        # data_pen=[3] + [2.6-(.4*x) for x in range(len(data_dict.items())-1)],
-        frame=True,
         map_points=constraints,
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
+
+        data_dict=data_dict,
+        share_yaxis=True,
+        data_frame=data_frame,
+        data_pen_thickness=[1, 1.5, 1],
+        data_pen_style=[None,None,"4_2:2p"],
+
+        layers_dict=layers_dict,
+        fill_layers=False,
+        layers_frame=layers_frame,
+        layer_pen_thickness=[1, 1.5, 1],
+        layers_pen_style=[None,None,"4_2:2p"],
+
+        frame=True,
+        start_label="A",
+        end_label="A' ",
         **kwargs,
     )
-
     return fig
 
 
@@ -281,10 +310,10 @@ def plot_inversion_results_profile(
     grav_ds = grav_results.set_index(["northing", "easting"]).to_xarray()
 
     cols = [s for s in prism_results.columns.to_list() if "_layer" in s]
-    initial_surface = prism_ds.surface
+    initial_surface = prism_ds.starting_bed
     final_surface = prism_ds[cols[-1]]
 
-    cols = [s for s in grav_results.columns.to_list() if "_final_misfit" in s]
+    # cols = [s for s in grav_results.columns.to_list() if "_final_misfit" in s]
     # final_residual = grav_ds[cols[-1]]
 
     cols = [s for s in grav_results.columns.to_list() if "_initial_misfit" in s]
@@ -365,37 +394,45 @@ def plot_inversion_results_profile(
         constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
 
     if layers_frame is None:
-        layers_frame = ["nesW", "xafg", "ya+lElevation (m)"]
+        layers_frame = ["nesW", "xafg", "ya+lelevation (m)"]
     if data_frame is None:
-        data_frame = ["nesW", "xafg", "ya+lGravity (mGal)"]
+        data_frame = ["neSW", "ya+lgravity (mGal)", "xag+lDistance (m)"]
 
-    fig = profile.plot_profile(
+    fig, df_layers, df_data = profile.plot_profile(
         "points",
         fig_height=6.5,
+        data_height=3,
         start=start,
         stop=stop,
         num=1000,
-        fill_layers=False,
-        data_height=3,
-        add_map=True,
+        
+        add_map=kwargs.get("map",True),
         map_background=background,
-        map_cmap="viridis",
+        map_cmap="batlowW",
         inset=False,
         gridlines=False,
         coast=False,
         map_buffer=map_buffer,
-        data_dict=data_dict,
-        layers_dict=layers_dict,
-        share_yaxis=True,
-        data_pen=[1, 2, 1],
-        layer_pen=[1, 2, 1],
-        frame=True,
         map_points=constraints,
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
-        layers_frame=layers_frame,
+        
+        data_dict=data_dict,
+        share_yaxis=True,
         data_frame=data_frame,
+        data_pen_thickness=[1, 1.5, 1],
+        data_pen_style=[None,None,"4_2:2p"],
+        
+        layers_dict=layers_dict,
+        fill_layers=False,
+        layers_frame=layers_frame,
+        layer_pen_thickness=[1, 1.5, 1],
+        layers_pen_style=[None,None,"4_2:2p"],
+        
+        frame=True,
+        start_label="A",
+        end_label="A' ",
         **kwargs,
     )
 
@@ -675,7 +712,12 @@ def plot_noise_cellsize_ensemble(
     return fig
 
 
-def plot_convergence(results, iter_times=None, logy=False):
+def plot_convergence(
+    results, 
+    iter_times=None, 
+    logy=False,
+    figsize=(5,3.5),
+):
     sns.set_theme()
 
     # get misfit data at end of each iteration
@@ -684,7 +726,7 @@ def plot_convergence(results, iter_times=None, logy=False):
     # final_misfits = [np.sqrt(utils.RMSE(results[i])) for i in cols]
     final_misfits = [utils.RMSE(results[i]) for i in cols]
 
-    fig, ax1 = plt.subplots(figsize=(5, 3.5))
+    fig, ax1 = plt.subplots(figsize=figsize)
     plt.title("Inversion convergence")
     ax1.plot(range(iters), final_misfits, "b-")
     ax1.set_xlabel("Iteration")
@@ -858,7 +900,11 @@ def plot_constraint_spacing_ensemble(
 
 
 def plot_parameter_cv(
-    scores, dampings, logx=False, logy=False, param_name="Hyperparameter"
+    scores, dampings, 
+    logx=False, 
+    logy=False, 
+    param_name="Hyperparameter",
+    figsize=(5,3.5),
 ):
     df = pd.DataFrame({"scores": scores, "dampings": dampings})
     df.sort_values(by="dampings", inplace=True)
@@ -867,7 +913,7 @@ def plot_parameter_cv(
 
     sns.set_theme()
 
-    plt.figure(figsize=(5, 3.5))
+    plt.figure(figsize=figsize)
     plt.title(f"{param_name} Cross-validation")
     plt.plot(df.dampings, df.scores, marker="o")
     plt.plot(
@@ -927,8 +973,7 @@ def plot_data_and_layers(
         fig = maps.plot_grd(
             grid=j,
             fig_height=8,
-            cmap="rain",
-            reverse_cpt=True,
+            cmap="batlowW",
             region=buffer_region,
             grd2cpt=True,
             title=topo_titles[i],
@@ -1600,7 +1645,8 @@ def misfit_plotting(
             f"Misfit, RMSE: {round(rmse,2)} mGal",
             "Predicted gravity",
         ]
-        cmaps = ["vik", "vik+h0", "vik"]
+        cmaps = ["balance+h0", "balance+h0", "balance+h0"]
+        # cmaps = ["vik", "vik+h0", "vik"]
         for i, g in enumerate(grids):
             if i == 0:
                 fig = None
@@ -1844,19 +1890,16 @@ def inputs_plotting(
             cmap = "vik+h0"
             cbar_unit = "mGal"
             cbar_label = None
-            reverse_cpt = False
         else:
             origin_shift = "xshift"
-            cmap = "rain"
+            cmap = "batlowW"
             cbar_unit = "m"
             cbar_label = "elevation"
-            reverse_cpt = True
 
         fig = maps.plot_grd(
             grid=g,
             fig_height=9,
             cmap=cmap,
-            reverse_cpt=reverse_cpt,
             robust=robust,
             region=buffer_region,
             title=titles[i],

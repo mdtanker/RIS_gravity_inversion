@@ -431,7 +431,6 @@ class CV_inversion:
         damping_step=0.1,
         weights_grid_kwargs=None,
         inversion_kwargs=None,
-        **kwargs,
     ):
         self.fname = fname
         self.true_surface = true_surface
@@ -448,13 +447,12 @@ class CV_inversion:
         self.l2_norm_step = l2_norm_step
         self.weights_grid_kwargs = weights_grid_kwargs
         self.inversion_kwargs = inversion_kwargs
-        self.kwargs = kwargs
 
     def __call__(self, trial):
         # define parameter space
 
         if self.damping_limits is None:
-            solver_damping = self.kwargs.get("solver_damping")
+            solver_damping = self.inversion_kwargs.get("solver_damping")
         else:
             exp = trial.suggest_float(
                 "damping",
@@ -550,7 +548,7 @@ class CV_inversion:
         final_surface = prism_ds[cols[-1]]
 
         # set reference as un-inverted surface mean
-        zref = prism_ds.surface.values.mean()
+        zref = prism_ds.starting_bed.values.mean()
         # zref = prisms_ds.top.values.min()
 
         # set density contrast
@@ -581,7 +579,7 @@ class CV_inversion:
 
         # compare new forward with observed
         observed = (
-            self.testing_data[self.kwargs.get("input_grav_column")]
+            self.testing_data[self.inversion_kwargs.get("input_grav_column")]
             - self.testing_data.reg
         )
         predicted = grav_df.test_point_grav

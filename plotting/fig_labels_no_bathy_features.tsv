@@ -1,0 +1,26 @@
+#x, y, [angle, font, justify], text
+
+-320000		-440000		-40	LM	Mercer
+-385000		-555000		-5	LM	Whillans
+-450000		-660000		-25	LM	Kamb
+-645000		-700000		-45	LM	Bindschadler
+-660000		-850000		-37	LM	MacAyeal
+
+-380000		-850000 	0 	TC Siple Dome
+-200000		-620000		0 	TC Crary Ice
+-200000		-660000		0 	TC Rise
+
+-360000		-1160000	0 	TC Roosevelt
+-360000		-1200000	0 	TC Island
+
+320000		-1330000	0	TC	Ross
+320000		-1370000	0	TC	Island
+
+350000		-1200000	0	TC	Minna
+350000		-1240000	0	TC	Bluff
+
+400000		-915000		50 	BC	Byrd	
+265000		-750000		50 	BC	Nimrod	
+110000		-580000		75 	BC	Beardmore
+-32000		-520000		82 	BC	Shackleton
+#-230000		-400000		70		BC	Scott	

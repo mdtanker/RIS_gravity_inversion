@@ -364,6 +364,315 @@ def monte_carlo_full_workflow_uncertainty_loop(
     return (params, values, grav_dfs, prism_dfs)
 
 
+def monte_carlo_inversion_uncertainty_loop(
+    fname,
+    runs,
+    grav,
+    constraints,
+    sample_grav=False,
+    sample_constraints=False,
+    sample_starting_bed_tension=False,
+    sample_starting_bed_damping=False,
+    sample_regional_tension_factor=False,
+    sample_regional_damping=False,
+    sample_density_contrast=False,
+    run_damping_CV=True,
+    damping_CV_fname=None,
+    inversion_args=None,
+    starting_args=None,
+    sampling="LHC",
+    **kwargs,
+):
+    """
+    Run a series of Monte Carlo simulations (N=runs), and save results of
+    each inversion to pickle files starting with `fname`. If files already
+    exist, just return the loaded results instead of re-running the inversion.
+    Choose which variables to include in the sampling and whether or not to
+    run a damping value cross-validation for each inversion.
+
+    Feed returned values into function `merged_stats` to compute
+    cell-wise stats on the resulting ensemble of starting bed models,
+    inverted bed models, and gravity anomalies.
+    """
+    # if file exists, start and next run, else start at 0
+    try:
+        # load pickle files
+        params = []
+        with open(f"{fname}_params.pickle", "rb") as file:
+            while 1:
+                try:
+                    params.append(pickle.load(file))
+                except EOFError:
+                    break
+        starting_run = len(params)
+    except FileNotFoundError:
+        print(f"No pickle files starting with '{fname}' found, creating new files\n")
+        # create / overwrite pickle files
+        with open(f"{fname}_params.pickle", "wb") as _:
+            pass
+        with open(f"{fname}_sampled_values.pickle", "wb") as _:
+            pass
+        with open(f"{fname}_grav_dfs.pickle", "wb") as _:
+            pass
+        with open(f"{fname}_prism_dfs.pickle", "wb") as _:
+            pass
+        starting_run = 0
+    if starting_run == runs:
+        print(f"all {runs} runs already complete, loading results from files.")
+    for i in tqdm(range(starting_run, runs)):
+        if i == starting_run:
+            print(
+                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
+                f"{runs}\nsaving results to pickle files with prefix: '{fname}'\n"
+            )
+
+        recalculate_starting_bed = False
+        recalculate_bed_gravity = False
+        recalculate_regional = False
+
+        if sampling == "LHC":
+            if i == 0:
+                # gather distributions (excluding grav and constraints)
+                dists = {}
+                if sample_starting_bed_tension is True:
+                    dists["starting_bed_tension"] = Uniform(loc=0, scale=1)
+                if sample_starting_bed_damping is True:
+                    dists["starting_bed_damping"] = Uniform(
+                        loc=10**-40, scale=10**-10
+                    )
+                if sample_regional_tension_factor is True:
+                    dists["regional_tension_factor"] = Uniform(loc=0, scale=1)
+                if sample_regional_damping is True:
+                    dists["regional_damping"] = Uniform(loc=10**-45, scale=10**-5)
+                if sample_density_contrast is True:
+                    dists["density_contrast"] = Normal(
+                        loc=starting_args.get("density_contrast"), scale=400
+                    )
+
+                # make latin hyper cube
+                lhs = LHS(
+                    distributions=[v for k, v in dists.items()],
+                    criterion=Centered(),
+                    # criterion=Random(),
+                    random_state=np.random.RandomState(1),
+                    nsamples=runs,
+                )
+                # make dict of sampled values
+                samples = {}
+                for j, (k, v) in enumerate(dists.items()):
+                    samples[k] = lhs._samples[:, j]
+
+            # get ith element of each sampled list
+            sampled_args = {}
+            for j, (k, v) in enumerate(samples.items()):
+                sampled_args[k] = v[i]
+
+            # sample grav and constraints with random sampling
+            # create random generator
+            rand = np.random.default_rng(seed=i)
+
+            # if gravity resampled, must recalculate misfit and regional
+            if sample_grav is True:
+                sampled_grav = grav.copy()
+                Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
+                sampled_grav["Gobs"] = Gobs_sampled
+                gravity_df = sampled_grav.copy()
+            elif sample_grav is False:
+                gravity_df = grav.copy()
+            # if constraints resampled, must recalculate starting bed,
+            # recalculate bed gravity, and recalculate regional
+            if sample_constraints is True:
+                sampled_constraints = constraints.copy()
+                sampled_constraints["upward"] = rand.normal(
+                    sampled_constraints.upward, sampled_constraints.z_error
+                )
+                constraint_points = sampled_constraints.copy()
+            elif sample_constraints is False:
+                constraint_points = constraints.copy()
+
+        elif sampling == "random":
+            # create random generator
+            rand = np.random.default_rng(seed=i)
+
+            # if gravity resampled, must recalculate misfit and regional
+            if sample_grav is True:
+                sampled_grav = grav.copy()
+                Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
+                sampled_grav["Gobs"] = Gobs_sampled
+                gravity_df = sampled_grav.copy()
+            elif sample_grav is False:
+                gravity_df = grav.copy()
+            # if constraints resampled, must recalculate starting bed,
+            # recalculate bed gravity, and recalculate regional
+            if sample_constraints is True:
+                sampled_constraints = constraints.copy()
+                sampled_constraints["upward"] = rand.normal(
+                    sampled_constraints.upward, sampled_constraints.z_error
+                )
+                constraint_points = sampled_constraints.copy()
+            elif sample_constraints is False:
+                constraint_points = constraints.copy()
+
+            # make dict of sampled values
+            sampled_args = {}
+            if sample_starting_bed_tension is True:
+                sampled_args["starting_bed_tension"] = rand.uniform(0, 1)
+            if sample_starting_bed_damping is True:
+                deg = rand.uniform(-40, -10)
+                sampled_args["starting_bed_damping"] = 10**deg
+            if sample_regional_tension_factor is True:
+                sampled_args["regional_tension_factor"] = rand.uniform(0, 1)
+            if sample_regional_damping is True:
+                deg = rand.uniform(-45, -5)
+                sampled_args["regional_damping"] = 10**deg
+            if sample_sediment_density is True:
+                sampled_args["density_contrast"] = rand.normal(
+                    starting_args.get("density_contrast"), 400
+                )
+
+        # if values not sampled, add default values from starting args
+        if sample_starting_bed_tension is False:
+            sampled_args["starting_bed_tension"] = starting_args.get(
+                "starting_bed_tension"
+            )
+        if sample_starting_bed_damping is False:
+            sampled_args["starting_bed_damping"] = starting_args.get(
+                "starting_bed_damping"
+            )
+        if sample_regional_tension_factor is False:
+            sampled_args["regional_tension_factor"] = starting_args.get(
+                "regional_tension_factor"
+            )
+        if sample_regional_damping is False:
+            sampled_args["regional_damping"] = starting_args.get("regional_damping")
+        if sample_density_contrast is False:
+            sampled_args["density_contrast"] = starting_args.get("density_contrast")
+
+        if sample_starting_bed_tension & sample_starting_bed_damping:
+            raise ValueError(
+                "cant resample both starting bed damping and tension factor"
+            )
+        elif sample_starting_bed_tension:
+            starting_bed_method = "surface"
+        elif sample_starting_bed_damping:
+            starting_bed_method = "spline"
+        else:
+            starting_bed_method = starting_args.get("starting_bed_method")
+
+        if sample_regional_damping & sample_regional_tension_factor:
+            raise ValueError(
+                "cant resample both regional damping and regional tension factor"
+            )
+        elif sample_regional_damping:
+            regional_grid_method = "verde"
+        elif sample_regional_tension_factor:
+            regional_grid_method = "pygmt"
+        else:
+            regional_grid_method = starting_args.get("regional_grid_method")
+
+        # define what needs to be done depending on what parameters are sampled
+        if sample_grav is True:
+            recalculate_regional = True
+        if sample_constraints is True:
+            recalculate_starting_bed = True
+            recalculate_bed_gravity = True
+            recalculate_regional = True
+        if sample_starting_bed_tension is True:
+            recalculate_starting_bed = True
+        if sample_starting_bed_damping is True:
+            recalculate_starting_bed = True
+        if sample_regional_tension_factor is True:
+            recalculate_regional = True
+        if sample_regional_damping is True:
+            recalculate_regional = True
+        if sample_density_contrast is True:
+            recalculate_bed_gravity = True
+
+        # if certain things are recalculated, other must be as well
+        if recalculate_starting_bed is True:
+            recalculate_bed_gravity = True
+        if recalculate_bed_gravity is True:
+            recalculate_regional = True
+
+        if i == starting_run:
+            verbose = None
+        else:
+            verbose = "q"
+
+        # run inversion
+        inv_results = monte_carlo_inversion(
+            constraints=constraint_points,
+            gravity_df=gravity_df,
+            recalculate_starting_bed=recalculate_starting_bed,
+            recalculate_bed_gravity=recalculate_bed_gravity,
+            recalculate_regional=recalculate_regional,
+            run_damping_CV=run_damping_CV,
+            damping_CV_fname=f"{damping_CV_fname}_run_{i}",
+            inversion_args=inversion_args,
+            sampled_args=sampled_args,
+            verbose=verbose,
+            regional_grid_method=regional_grid_method,
+            starting_bed_method=starting_bed_method,
+            **kwargs,
+        )
+
+        # get prism layer data
+        prism_df = inv_results[0]
+
+        # get gravity data
+        grav_df = inv_results[1]
+
+        # get parameters
+        params = inv_results[2]
+
+        # add run number to the parameter values
+        params["run_num"] = i
+
+        # save results
+        with open(f"{fname}_params.pickle", "ab") as file:
+            pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(f"{fname}_sampled_values.pickle", "ab") as file:
+            pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(f"{fname}_grav_dfs.pickle", "ab") as file:
+            pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(f"{fname}_prism_dfs.pickle", "ab") as file:
+            pickle.dump(prism_df, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print(f"Finished inversion {i+1} of {runs}")
+
+    # load pickle files
+    params = []
+    with open(f"{fname}_params.pickle", "rb") as file:
+        while 1:
+            try:
+                params.append(pickle.load(file))
+            except EOFError:
+                break
+    values = []
+    with open(f"{fname}_sampled_values.pickle", "rb") as file:
+        while 1:
+            try:
+                values.append(pickle.load(file))
+            except EOFError:
+                break
+    grav_dfs = []
+    with open(f"{fname}_grav_dfs.pickle", "rb") as file:
+        while 1:
+            try:
+                grav_dfs.append(pickle.load(file))
+            except EOFError:
+                break
+    prism_dfs = []
+    with open(f"{fname}_prism_dfs.pickle", "rb") as file:
+        while 1:
+            try:
+                prism_dfs.append(pickle.load(file))
+            except EOFError:
+                break
+
+    return (params, values, grav_dfs, prism_dfs)
+
+
 def merge_simulation_results(
     params,
     results_dfs,
@@ -552,223 +861,223 @@ def merged_stats(
     return stats_ds
 
 
-def monte_carlo_inversion_uncertainty_loop(
-    fname,
-    runs,
-    grav,
-    constraints,
-    sample_grav=False,
-    sample_constraints=False,
-    sample_water_density=False,
-    sample_sediment_density=False,
-    inversion_args=None,
-    sampled_args=None,
-    starting_args=None,
-    plot=False,
-    mask=None,
-    title="Monte Carlo simulation",
-    **kwargs,
-):
-    # if file exists, start and next run, else start at 0
-    try:
-        topos = xr.open_zarr(fname)
-        starting_run = len(topos)
-    except FileNotFoundError:
-        print(f"File {fname} not found, creating new file\n")
-        # create / overwrite pickle files
-        with open(f"{fname[:-5]}_params.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_sampled_values.pickle", "wb") as _:
-            pass
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "wb") as _:
-            pass
-        starting_run = 0
+# def monte_carlo_inversion_uncertainty_loop(
+#     fname,
+#     runs,
+#     grav,
+#     constraints,
+#     sample_grav=False,
+#     sample_constraints=False,
+#     sample_water_density=False,
+#     sample_sediment_density=False,
+#     inversion_args=None,
+#     sampled_args=None,
+#     starting_args=None,
+#     plot=False,
+#     mask=None,
+#     title="Monte Carlo simulation",
+#     **kwargs,
+# ):
+#     # if file exists, start and next run, else start at 0
+#     try:
+#         topos = xr.open_zarr(fname)
+#         starting_run = len(topos)
+#     except FileNotFoundError:
+#         print(f"File {fname} not found, creating new file\n")
+#         # create / overwrite pickle files
+#         with open(f"{fname[:-5]}_params.pickle", "wb") as _:
+#             pass
+#         with open(f"{fname[:-5]}_sampled_values.pickle", "wb") as _:
+#             pass
+#         with open(f"{fname[:-5]}_grav_dfs.pickle", "wb") as _:
+#             pass
+#         starting_run = 0
 
-    if starting_run == runs:
-        print(f"all {runs} runs already complete, loading results from file.")
-    for i in tqdm(range(starting_run, runs)):
-        if i == starting_run:
-            print(
-                f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
-                f"{runs}\nsaving results to {fname}\n"
-            )
+#     if starting_run == runs:
+#         print(f"all {runs} runs already complete, loading results from file.")
+#     for i in tqdm(range(starting_run, runs)):
+#         if i == starting_run:
+#             print(
+#                 f"starting Monte Carlo uncertainty analysis at run {starting_run} of "
+#                 f"{runs}\nsaving results to {fname}\n"
+#             )
 
-        # create random generator
-        rand = np.random.default_rng(seed=i)
+#         # create random generator
+#         rand = np.random.default_rng(seed=i)
 
-        recalculate_starting_bed = False
-        recalculate_bed_gravity = False
-        recalculate_regional = False
+#         recalculate_starting_bed = False
+#         recalculate_bed_gravity = False
+#         recalculate_regional = False
 
-        sampled_args = {}
+#         sampled_args = {}
 
-        # if gravity resampled, must recalculate misfit and regional
-        if sample_grav is True:
-            sampled_grav = grav.copy()
-            Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
-            sampled_grav["Gobs"] = Gobs_sampled
-            gravity_df = sampled_grav.copy()
-            recalculate_regional = True
-        elif sample_grav is False:
-            gravity_df = grav.copy()
+#         # if gravity resampled, must recalculate misfit and regional
+#         if sample_grav is True:
+#             sampled_grav = grav.copy()
+#             Gobs_sampled = rand.normal(sampled_grav.Gobs, sampled_grav.uncert)
+#             sampled_grav["Gobs"] = Gobs_sampled
+#             gravity_df = sampled_grav.copy()
+#             recalculate_regional = True
+#         elif sample_grav is False:
+#             gravity_df = grav.copy()
 
-        # if constraints resampled, must recalculate starting bed,
-        # recalculate bed gravity, and recalculate regional
-        if sample_constraints is True:
-            sampled_constraints = constraints.drop(columns="upward").copy()
-            sampled_constraints["upward"] = rand.uniform(
-                sampled_constraints.low_lim, sampled_constraints.high_lim
-            )
-            constraint_points = sampled_constraints.copy()
-            recalculate_starting_bed = True
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_constraints is False:
-            constraint_points = constraints.copy()
+#         # if constraints resampled, must recalculate starting bed,
+#         # recalculate bed gravity, and recalculate regional
+#         if sample_constraints is True:
+#             sampled_constraints = constraints.drop(columns="upward").copy()
+#             sampled_constraints["upward"] = rand.uniform(
+#                 sampled_constraints.low_lim, sampled_constraints.high_lim
+#             )
+#             constraint_points = sampled_constraints.copy()
+#             recalculate_starting_bed = True
+#             recalculate_bed_gravity = True
+#             recalculate_regional = True
+#         elif sample_constraints is False:
+#             constraint_points = constraints.copy()
 
-        # if water density resampled, must recalculate bed gravity and regional
-        if sample_water_density is True:
-            sampled_args["water_density"] = rand.normal(
-                starting_args.get("water_density"), 5
-            )
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_water_density is False:
-            sampled_args["water_density"] = starting_args.get("water_density")
+#         # if water density resampled, must recalculate bed gravity and regional
+#         if sample_water_density is True:
+#             sampled_args["water_density"] = rand.normal(
+#                 starting_args.get("water_density"), 5
+#             )
+#             recalculate_bed_gravity = True
+#             recalculate_regional = True
+#         elif sample_water_density is False:
+#             sampled_args["water_density"] = starting_args.get("water_density")
 
-        # if sediment density resampled, must recalculate bed gravity and regional
-        if sample_sediment_density is True:
-            sampled_args["sediment_density"] = rand.normal(
-                starting_args.get("sediment_density"), 400
-            )
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        elif sample_sediment_density is False:
-            sampled_args["sediment_density"] = starting_args.get("sediment_density")
+#         # if sediment density resampled, must recalculate bed gravity and regional
+#         if sample_sediment_density is True:
+#             sampled_args["sediment_density"] = rand.normal(
+#                 starting_args.get("sediment_density"), 400
+#             )
+#             recalculate_bed_gravity = True
+#             recalculate_regional = True
+#         elif sample_sediment_density is False:
+#             sampled_args["sediment_density"] = starting_args.get("sediment_density")
 
-        if recalculate_starting_bed is True:
-            recalculate_bed_gravity = True
-            recalculate_regional = True
-        if recalculate_bed_gravity is True:
-            recalculate_regional = True
+#         if recalculate_starting_bed is True:
+#             recalculate_bed_gravity = True
+#             recalculate_regional = True
+#         if recalculate_bed_gravity is True:
+#             recalculate_regional = True
 
-        if i == starting_run:
-            verbose = None
-        else:
-            verbose = "q"
+#         if i == starting_run:
+#             verbose = None
+#         else:
+#             verbose = "q"
 
-        # run inversion
-        topo, results = monte_carlo_inversion(
-            constraints=constraint_points,
-            gravity_df=gravity_df,
-            recalculate_starting_bed=recalculate_starting_bed,
-            recalculate_bed_gravity=recalculate_bed_gravity,
-            recalculate_regional=recalculate_regional,
-            inversion_args=inversion_args,
-            sampled_args=sampled_args,
-            verbose=verbose,
-            **kwargs,
-        )
+#         # run inversion
+#         topo, results = monte_carlo_inversion(
+#             constraints=constraint_points,
+#             gravity_df=gravity_df,
+#             recalculate_starting_bed=recalculate_starting_bed,
+#             recalculate_bed_gravity=recalculate_bed_gravity,
+#             recalculate_regional=recalculate_regional,
+#             inversion_args=inversion_args,
+#             sampled_args=sampled_args,
+#             verbose=verbose,
+#             **kwargs,
+#         )
 
-        # rename grid with run number
-        topo = topo.to_dataset(name=f"run_{i}")
+#         # rename grid with run number
+#         topo = topo.to_dataset(name=f"run_{i}")
 
-        if i == 0:
-            mode = "w"
-        else:
-            mode = "a"
+#         if i == 0:
+#             mode = "w"
+#         else:
+#             mode = "a"
 
-        enc = {x: {"compressor": zarr.Blosc()} for x in topo}
-        topo.to_zarr(
-            fname,
-            encoding=enc,
-            mode=mode,
-        )
+#         enc = {x: {"compressor": zarr.Blosc()} for x in topo}
+#         topo.to_zarr(
+#             fname,
+#             encoding=enc,
+#             mode=mode,
+#         )
 
-        # get gravity data
-        grav_df = results[1]
+#         # get gravity data
+#         grav_df = results[1]
 
-        # get parameters
-        params = results[2]
+#         # get parameters
+#         params = results[2]
 
-        # save parameters
-        with open(f"{fname[:-5]}_params.pickle", "ab") as file:
-            pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_sampled_values.pickle", "ab") as file:
-            pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(f"{fname[:-5]}_grav_dfs.pickle", "ab") as file:
-            pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
+#         # save parameters
+#         with open(f"{fname[:-5]}_params.pickle", "ab") as file:
+#             pickle.dump(params, file, protocol=pickle.HIGHEST_PROTOCOL)
+#         with open(f"{fname[:-5]}_sampled_values.pickle", "ab") as file:
+#             pickle.dump(sampled_args, file, protocol=pickle.HIGHEST_PROTOCOL)
+#         with open(f"{fname[:-5]}_grav_dfs.pickle", "ab") as file:
+#             pickle.dump(grav_df, file, protocol=pickle.HIGHEST_PROTOCOL)
 
-        print(f"Finished inversion {i+1} of {runs}")
+#         print(f"Finished inversion {i+1} of {runs}")
 
-    # load pickle files
-    params = []
-    with open(f"{fname[:-5]}_params.pickle", "rb") as file:
-        while 1:
-            try:
-                params.append(pickle.load(file))
-            except EOFError:
-                break
-    values = []
-    with open(f"{fname[:-5]}_sampled_values.pickle", "rb") as file:
-        while 1:
-            try:
-                values.append(pickle.load(file))
-            except EOFError:
-                break
-    grav_dfs = []
-    with open(f"{fname[:-5]}_grav_dfs.pickle", "rb") as file:
-        while 1:
-            try:
-                grav_dfs.append(pickle.load(file))
-            except EOFError:
-                break
+#     # load pickle files
+#     params = []
+#     with open(f"{fname[:-5]}_params.pickle", "rb") as file:
+#         while 1:
+#             try:
+#                 params.append(pickle.load(file))
+#             except EOFError:
+#                 break
+#     values = []
+#     with open(f"{fname[:-5]}_sampled_values.pickle", "rb") as file:
+#         while 1:
+#             try:
+#                 values.append(pickle.load(file))
+#             except EOFError:
+#                 break
+#     grav_dfs = []
+#     with open(f"{fname[:-5]}_grav_dfs.pickle", "rb") as file:
+#         while 1:
+#             try:
+#                 grav_dfs.append(pickle.load(file))
+#             except EOFError:
+#                 break
 
-    # get final gravity residual RMSE of each model
-    residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
+#     # get final gravity residual RMSE of each model
+#     residuals = [utils.RMSE(df[list(df.columns)[-1]]) for df in grav_dfs]
 
-    # convert residuals into weights
-    weights = [1 / (x**2) for x in residuals]
+#     # convert residuals into weights
+#     weights = [1 / (x**2) for x in residuals]
 
-    # load dataset with all the topo models
-    topos = xr.open_zarr(fname)
+#     # load dataset with all the topo models
+#     topos = xr.open_zarr(fname)
 
-    # get stats on the ensemble
-    stats = model_ensemble_stats(topos, weights=weights)
+#     # get stats on the ensemble
+#     stats = model_ensemble_stats(topos, weights=weights)
 
-    if plot is True:
-        grd = stats.weighted_stdev
-        if mask is not None:
-            grd = utils.mask_from_shp(
-                shapefile=mask, xr_grid=grd, masked=True, invert=False
-            )
-        fig = maps.plot_grd(
-            grd,
-            cmap="inferno",
-            reverse_cpt=True,
-            robust=True,
-            hist=True,
-            cbar_label="weighted standard deviation (m)",
-            title=title,
-        )
-        fig.plot(
-            x=constraints.easting,
-            y=constraints.northing,
-            fill="black",
-            style="c.01c",
-        )
-        fig.plot(
-            x=constraints[constraints.inside].easting,
-            y=constraints[constraints.inside].northing,
-            fill="white",
-            pen=".3p,black",
-            style="c.08c",
-            label="Bed constraints",
-        )
-        fig.legend()
-        fig.show()
+#     if plot is True:
+#         grd = stats.weighted_stdev
+#         if mask is not None:
+#             grd = utils.mask_from_shp(
+#                 shapefile=mask, xr_grid=grd, masked=True, invert=False
+#             )
+#         fig = maps.plot_grd(
+#             grd,
+#             cmap="inferno",
+#             reverse_cpt=True,
+#             robust=True,
+#             hist=True,
+#             cbar_label="weighted standard deviation (m)",
+#             title=title,
+#         )
+#         fig.plot(
+#             x=constraints.easting,
+#             y=constraints.northing,
+#             fill="black",
+#             style="c.01c",
+#         )
+#         fig.plot(
+#             x=constraints[constraints.inside].easting,
+#             y=constraints[constraints.inside].northing,
+#             fill="white",
+#             pen=".3p,black",
+#             style="c.08c",
+#             label="Bed constraints",
+#         )
+#         fig.legend()
+#         fig.show()
 
-    return topos, params, values, grav_dfs
+#     return topos, params, values, grav_dfs
 
 
 def monte_carlo_full_workflow(
@@ -1018,6 +1327,10 @@ def monte_carlo_inversion(
     recalculate_starting_bed=False,
     recalculate_bed_gravity=False,
     recalculate_regional=False,
+    starting_bed_method=None,
+    regional_grid_method=None,
+    run_damping_CV=True,
+    damping_CV_fname=None,
     inversion_args=None,
     sampled_args=None,
     verbose=None,
@@ -1034,6 +1347,8 @@ def monte_carlo_inversion(
     starting_bed must be provided and "bef_forward" must be in the gravity dataframe
 
     to include gravity data in the MC analysis, provide "gravity_args", else,
+
+
     """
 
     grav = gravity_df.copy()
@@ -1041,93 +1356,268 @@ def monte_carlo_inversion(
     # re-create starting bed
     if recalculate_starting_bed is False:
         starting_bed = kwargs.get("starting_bed", None)
+        starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
     else:
         # recalculate the starting bed with the provided constraints
         if verbose != "q":
             print("Recalculating starting bed")
         with inv_utils.HiddenPrints():
             starting_bed = inv_utils.recreate_bed(
-                constraints=constraints,
-                bed_buffer_points=kwargs.get("bed_buffer_points", None),
+                inside_points=constraints[constraints.inside],
+                buffer_points=kwargs.get("buffer_points"),
+                outside_grid=kwargs.get("bed_outside"),
                 region=kwargs.get("buffer_region"),
-                spacing=kwargs.get("layer_spacing"),
-                icebase=kwargs.get("icebase_lowres", None),
-                weights=kwargs.get("constraint_weights_col", None),
+                fullres_spacing=kwargs.get("fullres_spacing"),
+                layer_spacing=kwargs.get("layer_spacing"),
+                method=starting_bed_method,
+                damping=sampled_args.get("starting_bed_damping"),
+                tension=sampled_args.get("starting_bed_tension"),
             )
         recalculate_bed_gravity = True
 
-    # recalculate bed gravity
+    # re-calculate starting bed gravity
     if recalculate_bed_gravity is False:
-        assert all(item in grav.columns for item in ["bed_forward"]), (
-            "if recalculate_bed_gravity is False, 'bed_forward' must be in gravity"
-            "dataframe"
+        assert all(item in grav.columns for item in ["starting_bed_grav"]), (
+            "if recalculate_bed_gravity is False,"
+            " 'starting_bed_grav' must be in gravity dataframe"
         )
-        starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
-        if starting_bed_prisms is None:
-            raise TypeError(
-                (
-                    "If recalculate_bed_gravity is False, must "
-                    "provide prisms layer with `starting_bed_prisms`"
-                )
-            )
     else:
         if verbose != "q":
-            print("Recalculating bed gravity")
+            print("Recalculating starting bed gravity")
         grav.drop(
-            columns=["bed_forward", "misfit", "reg", "res"],
+            columns=[
+                "starting_bed_grav",
+                "misfit",
+                "reg",
+                "res",
+            ],
             inplace=True,
             errors="ignore",
         )
         with inv_utils.HiddenPrints():
-            grav, starting_bed_prisms = inv_utils.recalc_bed_grav(
+            grav, starting_bed_prisms = inv_utils.recalculate_bed_gravity(
                 gravity=grav,
-                starting_bed=starting_bed,
-                water_density=sampled_args.get("water_density"),
-                sediment_density=sampled_args.get("sediment_density"),
+                water_density=0,
+                bed_density=sampled_args.get("density_contrast"),
+                grid=starting_bed,
+                reference=np.nanmean(starting_bed.values),
             )
+
+    # recalculate misfit
+    grav = inv.misfit(
+        input_grav=grav,
+        input_forward_column="starting_bed_grav",
+        input_grav_column="Gobs",
+        constraints=constraints,
+    )
+
     # recalculate regional seperation
     if recalculate_regional is False:
-        assert all(item in grav.columns for item in ["Gobs_shift", "res"]), (
-            "if recalculate_regional is False, 'Gobs_shift'"
+        assert all(item in grav.columns for item in ["res", "reg"]), (
+            "if recalculate_regional is False, 'reg'"
             " and 'res' must be in gravity dataframe"
         )
         anomalies = grav
     else:
         if verbose != "q":
             print("Recalculating regional field")
-        grav.drop(columns=["res", "reg", "misfit"], inplace=True, errors="ignore")
+        grav.drop(columns=["res", "reg"], inplace=True, errors="ignore")
         with inv_utils.HiddenPrints():
             anomalies = regional.regional_seperation(
                 input_grav=grav,
+                constraints=constraints,
                 grav_spacing=kwargs.get("grav_spacing"),
                 regional_method="constraints",
-                constraints=constraints,
-                input_forward_column="bed_forward",
-                input_grav_column="Gobs",
                 inversion_region=kwargs.get("inversion_region"),
-                grid_method="verde",
-                dampings=kwargs.get("dampings"),
-                constraint_weights_col=kwargs.get("constraints_weights_col"),
+                grid_method=regional_grid_method,
+                tension_factor=sampled_args.get("regional_tension_factor"),
+                dampings=sampled_args.get("regional_damping"),
+                constraint_weights_col="weights",
+                input_forward_column="starting_bed_grav",
+                input_grav_column="Gobs_shift",
             )
-    # add weights grid to starting prisms
-    starting_bed_prisms["weights"] = kwargs.get("weights_grid")
 
-    # run inversion
-    with inv_utils.HiddenPrints():
-        results = inv.geo_inversion(
-            input_grav=anomalies,
+    # add weights grid to starting prisms
+    if inversion_args.get("weights_after_solving") is True:
+        starting_bed_prisms["weights"] = kwargs.get("weights_grid")
+
+    # run inversion with damping parameter cross validation
+    if run_damping_CV is True:
+        dampings = kwargs.get("CV_damping_values")
+        scores, rmses = inv.inversion_optimal_parameters(
+            training_data=anomalies[~anomalies.test],
+            testing_data=anomalies[anomalies.test],
+            parameter_values=dampings,
+            function=inv.inversion_damping_MSE,
+            results_fname=damping_CV_fname,
+            progressbar=True,
+            inversion_region=kwargs.get("inversion_region"),
             prism_layer=starting_bed_prisms,
+            plot=False,
             **inversion_args,
         )
 
-    # get final topography
-    final_topo = (
-        results[0]
-        .set_index(["northing", "easting"])
-        .to_xarray()[results[0].columns[-1]]
-    )
+        # put scores and damping values into dict
+        CV_results = dict(scores=scores, dampings=dampings, rmses=rmses)
 
-    return final_topo, results
+        # remove if exists
+        pathlib.Path(damping_CV_fname).unlink(missing_ok=True)
+
+        # save scores and dampings to pickle
+        with open(f"{damping_CV_fname}.pickle", "wb") as f:
+            pickle.dump(CV_results, f)
+
+        # load scores and dampings from pickle
+        with open(f"{damping_CV_fname}.pickle", "rb") as f:
+            CV_results = pickle.load(f)
+
+        best = np.argmin(CV_results["scores"])
+        print("Best score:", CV_results["scores"][best])
+        print("Best damping:", CV_results["dampings"][best])
+
+        # get best inversion result of each set
+        with open(f"{damping_CV_fname}_trial_{best}.pickle", "rb") as f:
+            inv_result = pickle.load(f)
+
+        # delete other results to save space
+        fnames = []
+        for i in range(len(dampings)):
+            if i == best:
+                pass
+            else:
+                fnames.append(f"{damping_CV_fname}_trial_{i}.pickle")
+        for f in fnames:
+            pathlib.Path(f).unlink(missing_ok=True)
+
+    # run inversion with supplied damping parameter
+    elif run_damping_CV is False:
+        with inv_utils.HiddenPrints():
+            inv_result = inv.geo_inversion(
+                input_grav=anomalies[~anomalies.test],
+                prism_layer=starting_bed_prisms,
+                solver_damping=kwargs.get("solver_damping"),
+                **inversion_args,
+            )
+
+    return inv_result
+
+
+# def monte_carlo_inversion(
+#     constraints,
+#     gravity_df,
+#     recalculate_starting_bed=False,
+#     recalculate_bed_gravity=False,
+#     recalculate_regional=False,
+#     inversion_args=None,
+#     sampled_args=None,
+#     verbose=None,
+#     **kwargs,
+# ):
+#     """
+#     Run all portions of the inversion workflow which rely on constraints or gravity and
+#     return the resulting inverted bathymetry.
+
+#     to include layer densities in the MC analysis provide densities and grids in
+#     `forward_grav_args` else, column `Gobs_corr` must be in gravity dataframe
+
+#     to include constraints in the MC analysis, provide "constraint_args", else,
+#     starting_bed must be provided and "bef_forward" must be in the gravity dataframe
+
+#     to include gravity data in the MC analysis, provide "gravity_args", else,
+#     """
+
+#     grav = gravity_df.copy()
+
+#     # re-create starting bed
+#     if recalculate_starting_bed is False:
+#         starting_bed = kwargs.get("starting_bed", None)
+#     else:
+#         # recalculate the starting bed with the provided constraints
+#         if verbose != "q":
+#             print("Recalculating starting bed")
+#         with inv_utils.HiddenPrints():
+#             starting_bed = inv_utils.recreate_bed(
+#                 constraints=constraints,
+#                 bed_buffer_points=kwargs.get("bed_buffer_points", None),
+#                 region=kwargs.get("buffer_region"),
+#                 spacing=kwargs.get("layer_spacing"),
+#                 icebase=kwargs.get("icebase_lowres", None),
+#                 weights=kwargs.get("constraint_weights_col", None),
+#             )
+#         recalculate_bed_gravity = True
+
+#     # recalculate bed gravity
+#     if recalculate_bed_gravity is False:
+#         assert all(item in grav.columns for item in ["bed_forward"]), (
+#             "if recalculate_bed_gravity is False, 'bed_forward' must be in gravity"
+#             "dataframe"
+#         )
+#         starting_bed_prisms = kwargs.get("starting_bed_prisms", None)
+#         if starting_bed_prisms is None:
+#             raise TypeError(
+#                 (
+#                     "If recalculate_bed_gravity is False, must "
+#                     "provide prisms layer with `starting_bed_prisms`"
+#                 )
+#             )
+#     else:
+#         if verbose != "q":
+#             print("Recalculating bed gravity")
+#         grav.drop(
+#             columns=["bed_forward", "misfit", "reg", "res"],
+#             inplace=True,
+#             errors="ignore",
+#         )
+#         with inv_utils.HiddenPrints():
+#             grav, starting_bed_prisms = inv_utils.recalc_bed_grav(
+#                 gravity=grav,
+#                 starting_bed=starting_bed,
+#                 water_density=sampled_args.get("water_density"),
+#                 sediment_density=sampled_args.get("sediment_density"),
+#             )
+#     # recalculate regional seperation
+#     if recalculate_regional is False:
+#         assert all(item in grav.columns for item in ["Gobs_shift", "res"]), (
+#             "if recalculate_regional is False, 'Gobs_shift'"
+#             " and 'res' must be in gravity dataframe"
+#         )
+#         anomalies = grav
+#     else:
+#         if verbose != "q":
+#             print("Recalculating regional field")
+#         grav.drop(columns=["res", "reg", "misfit"], inplace=True, errors="ignore")
+#         with inv_utils.HiddenPrints():
+#             anomalies = regional.regional_seperation(
+#                 input_grav=grav,
+#                 grav_spacing=kwargs.get("grav_spacing"),
+#                 regional_method="constraints",
+#                 constraints=constraints,
+#                 input_forward_column="bed_forward",
+#                 input_grav_column="Gobs",
+#                 inversion_region=kwargs.get("inversion_region"),
+#                 grid_method="verde",
+#                 dampings=kwargs.get("dampings"),
+#                 constraint_weights_col=kwargs.get("constraints_weights_col"),
+#             )
+#     # add weights grid to starting prisms
+#     starting_bed_prisms["weights"] = kwargs.get("weights_grid")
+
+#     # run inversion
+#     with inv_utils.HiddenPrints():
+#         results = inv.geo_inversion(
+#             input_grav=anomalies,
+#             prism_layer=starting_bed_prisms,
+#             **inversion_args,
+#         )
+
+#     # get final topography
+#     final_topo = (
+#         results[0]
+#         .set_index(["northing", "easting"])
+#         .to_xarray()[results[0].columns[-1]]
+#     )
+
+#     return final_topo, results
 
 
 def model_ensemble_stats(
@@ -1320,7 +1810,7 @@ def plot_stats(
 #     raise ValueError(
 #           "cant resample both regional damping and regional tension factor")
 # elif sample_regional_damping:
-#     regional_grid_method = "verde"
+#     be_method = "verde"
 # elif sample_regional_tension_factor:
 #     regional_grid_method = "pygmt"
 # else:

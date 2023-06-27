@@ -37,3 +37,6 @@ __pycache__/
 
 # vs code
 .vscode/
+
+# auth info for NSIDC data access
+.env
