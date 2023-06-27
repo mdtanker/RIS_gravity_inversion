@@ -120,12 +120,12 @@ def plot_inversion_ensemble_results_profile(
 
     if constraints is not None:
         constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
-    
+
     if layers_frame is None:
         layers_frame = ["nesW", "xafg", "ya+lbed error (m)"]
     if data_frame is None:
         data_frame = ["neSW", "ya+lregional error (mGal)", "xag+lDistance (m)"]
-        
+
     fig, df_layers, df_data = profile.plot_profile(
         "points",
         fig_height=8,
@@ -134,7 +134,6 @@ def plot_inversion_ensemble_results_profile(
         stop=stop,
         num=1000,
         subplot_orientation="vertical",
-
         add_map=True,
         map_background=background,
         map_cmap="batlowW",
@@ -146,19 +145,16 @@ def plot_inversion_ensemble_results_profile(
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
-
         data_dict=data_dict,
         share_yaxis=True,
         data_frame=data_frame,
         # data_pen_thickness=[1, 1.5, 1],
         # data_pen_style=[None,None,"4_2:2p"],
-
         layers_dict=layers_dict,
         fill_layers=False,
         layers_frame=layers_frame,
         # layer_pen_thickness=[1, 1.5, 1],
         # layers_pen_style=[None,None,"4_2:2p"],
-
         frame=True,
         start_label="A",
         end_label="A' ",
@@ -238,16 +234,11 @@ def plot_regional_gridding_ensemble_profile(
     if constraints is not None:
         constraints = constraints.rename(columns={"easting": "x", "northing": "y"})
 
-    if polyline is None:
-        method = "points"
-    else:
-        method = "polyline"
-    
     if layers_frame is None:
         layers_frame = ["nesW", "xafg", "ya+lelevation (m)"]
     if data_frame is None:
         data_frame = ["neSW", "ya+lgravity (mGal)", "xag+lDistance (m)"]
-        
+
     fig, df_layers, df_data = profile.plot_profile(
         "points",
         fig_height=8,
@@ -256,7 +247,6 @@ def plot_regional_gridding_ensemble_profile(
         stop=stop,
         num=1000,
         subplot_orientation="vertical",
-
         add_map=True,
         map_background=background,
         map_cmap="batlowW",
@@ -268,19 +258,16 @@ def plot_regional_gridding_ensemble_profile(
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
-
         data_dict=data_dict,
         share_yaxis=True,
         data_frame=data_frame,
         data_pen_thickness=[1, 1.5, 1],
-        data_pen_style=[None,None,"4_2:2p"],
-
+        data_pen_style=[None, None, "4_2:2p"],
         layers_dict=layers_dict,
         fill_layers=False,
         layers_frame=layers_frame,
         layer_pen_thickness=[1, 1.5, 1],
-        layers_pen_style=[None,None,"4_2:2p"],
-
+        layers_pen_style=[None, None, "4_2:2p"],
         frame=True,
         start_label="A",
         end_label="A' ",
@@ -405,8 +392,7 @@ def plot_inversion_results_profile(
         start=start,
         stop=stop,
         num=1000,
-        
-        add_map=kwargs.get("map",True),
+        add_map=kwargs.get("map", True),
         map_background=background,
         map_cmap="batlowW",
         inset=False,
@@ -417,19 +403,16 @@ def plot_inversion_results_profile(
         map_points_style="x.3c",
         map_points_pen="1p,black",
         map_line_pen="2p,black",
-        
         data_dict=data_dict,
         share_yaxis=True,
         data_frame=data_frame,
         data_pen_thickness=[1, 1.5, 1],
-        data_pen_style=[None,None,"4_2:2p"],
-        
+        data_pen_style=[None, None, "4_2:2p"],
         layers_dict=layers_dict,
         fill_layers=False,
         layers_frame=layers_frame,
         layer_pen_thickness=[1, 1.5, 1],
-        layers_pen_style=[None,None,"4_2:2p"],
-        
+        layers_pen_style=[None, None, "4_2:2p"],
         frame=True,
         start_label="A",
         end_label="A' ",
@@ -713,10 +696,10 @@ def plot_noise_cellsize_ensemble(
 
 
 def plot_convergence(
-    results, 
-    iter_times=None, 
+    results,
+    iter_times=None,
     logy=False,
-    figsize=(5,3.5),
+    figsize=(5, 3.5),
 ):
     sns.set_theme()
 
@@ -900,11 +883,12 @@ def plot_constraint_spacing_ensemble(
 
 
 def plot_parameter_cv(
-    scores, dampings, 
-    logx=False, 
-    logy=False, 
+    scores,
+    dampings,
+    logx=False,
+    logy=False,
     param_name="Hyperparameter",
-    figsize=(5,3.5),
+    figsize=(5, 3.5),
 ):
     df = pd.DataFrame({"scores": scores, "dampings": dampings})
     df.sort_values(by="dampings", inplace=True)

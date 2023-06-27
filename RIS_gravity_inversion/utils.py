@@ -778,7 +778,7 @@ def recreate_bed(
         weights_col_name = "weights"
     else:
         weights_col_name = None
-    
+
     if fullres_spacing is None:
         spacing = layer_spacing
     # create starting bathymetry at full res

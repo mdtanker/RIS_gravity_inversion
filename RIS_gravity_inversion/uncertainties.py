@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.matlib
 import xarray as xr
-import zarr
 from antarctic_plots import maps, profile, utils
 from scipy.special import erf
 from scipy.stats import pearsonr
@@ -525,7 +524,7 @@ def monte_carlo_inversion_uncertainty_loop(
             if sample_regional_damping is True:
                 deg = rand.uniform(-45, -5)
                 sampled_args["regional_damping"] = 10**deg
-            if sample_sediment_density is True:
+            if sample_density_contrast is True:
                 sampled_args["density_contrast"] = rand.normal(
                     starting_args.get("density_contrast"), 400
                 )
@@ -1514,8 +1513,8 @@ def monte_carlo_inversion(
 #     **kwargs,
 # ):
 #     """
-#     Run all portions of the inversion workflow which rely on constraints or gravity and
-#     return the resulting inverted bathymetry.
+#     Run all portions of the inversion workflow which rely on constraints or gravity
+#     and return the resulting inverted bathymetry.
 
 #     to include layer densities in the MC analysis provide densities and grids in
 #     `forward_grav_args` else, column `Gobs_corr` must be in gravity dataframe
