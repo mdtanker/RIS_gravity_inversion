@@ -34,6 +34,7 @@ dependencies:
   - pytest
   - pytest-cov
   - python-dotenv
+  - uqpy
   - mamba
   - pip
   - pip:
