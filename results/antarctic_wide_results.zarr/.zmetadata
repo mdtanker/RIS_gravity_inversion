@@ -1,0 +1,115 @@
+{
+    "metadata": {
+        ".zattrs": {},
+        ".zgroup": {
+            "zarr_format": 2
+        },
+        "bed/.zarray": {
+            "chunks": [
+                834,
+                834
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f4",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                13333,
+                13333
+            ],
+            "zarr_format": 2
+        },
+        "bed/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "northing",
+                "easting"
+            ]
+        },
+        "bed_error/.zarray": {
+            "chunks": [
+                834,
+                834
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f4",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                13333,
+                13333
+            ],
+            "zarr_format": 2
+        },
+        "bed_error/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "northing",
+                "easting"
+            ]
+        },
+        "easting/.zarray": {
+            "chunks": [
+                13333
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<i4",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                13333
+            ],
+            "zarr_format": 2
+        },
+        "easting/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "easting"
+            ]
+        },
+        "northing/.zarray": {
+            "chunks": [
+                13333
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<i4",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                13333
+            ],
+            "zarr_format": 2
+        },
+        "northing/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "northing"
+            ]
+        }
+    },
+    "zarr_consolidated_format": 1
+}
