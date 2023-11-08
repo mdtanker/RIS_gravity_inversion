@@ -1,20 +1,25 @@
 # output results
 results/*
 !results/.gitkeep
-!results/antarctic_wide_results.zarr
 
+# optimization logs
 optimization_logs/*
 !optimization_logs/.gitkeep
 
+# downloaded data
 data/*
 !data/.gitkeep
 
+# created synthetic data
 synthetic_data/*
 !synthetic_data/.gitkeep
 
 # inversion layers
 inversion_layers/*
 !inversion_layers/.gitkeep
+
+# created plotting files
+plotting/*.cpt
 
 # temp files
 tmp_outputs/*
