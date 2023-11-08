@@ -1,6 +1,7 @@
 # output results
 results/*
 !results/.gitkeep
+!results/antarctic_wide_results/
 
 # optimization logs
 optimization_logs/*
