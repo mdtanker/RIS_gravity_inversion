@@ -35,7 +35,7 @@ dependencies = [
     "invert4geom>=0.8.1",
     "matplotlib",
     "numpy",
-    "scipy",
+    "scipy<1.14", # issue with UQpy import
     "cmocean",
     "pandas",
     "plotly",
