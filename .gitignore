@@ -209,3 +209,9 @@ Thumbs.db
 *.pickle
 *.log
 *.lock
+
+# cpt files
+*.cpt
+
+# RIS outline
+plotting/RIS_outline*
