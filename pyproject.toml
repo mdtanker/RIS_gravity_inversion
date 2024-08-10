@@ -32,7 +32,7 @@ classifiers = [
 
 dependencies = [
     "polartoolkit[all]>=0.5.1",
-    "invert4geom>=0.8.1",
+    "invert4geom>=0.9",
     "matplotlib",
     "numpy",
     "scipy<1.14", # issue with UQpy import

@@ -4,6 +4,6 @@ channels:
 dependencies:
   - python=3.11
   - polartoolkit[all]>=0.5.1
-  - invert4geom[all]>=0.8.1
+  - invert4geom[all]>=0.9
   - geopandas<1.0
   - jupyterlab_execute_time
