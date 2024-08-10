@@ -33,8 +33,8 @@ Here are some notes on the common workflows for processing airborne gravity data
         * [More info](https://geodesyworld.github.io/SOFTS/solid.htm)
         * up to 30cm
         * does not average to zero
-        * Equitorial bulge partially due to 1)Earth's rotation and 2) average attraction of the Moon and Sun
-            * called permanent tidal deformation (PTD)
+        * Equatorial bulge partially due to 1)Earth's rotation and 2) average attraction of the Moon and Sun
+            * called permanent tidal deformation
         * Software:
             * [LongmanTide](https://github.com/bradyzp/LongmanTide/)
                 * uses Longman 1959 formula
@@ -80,7 +80,7 @@ Here are some notes on the common workflows for processing airborne gravity data
                 * Simple
                     * assume cross-overs on average are 0
                     * discard mis-ties in areas of high horizontal gradients
-                    * analyize mis-ties and remove outliers
+                    * analyze mis-ties and remove outliers
                     * statistically level tie lines to match flight lines (shifted, linearly trended ,splined, or b-splined)
                     * calc new intersections
                     * manually adjust specific mis-ties
