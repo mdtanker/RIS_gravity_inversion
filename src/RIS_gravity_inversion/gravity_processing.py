@@ -13,7 +13,7 @@ import scipy
 import seaborn as sns
 import shapely
 import verde as vd
-from antarctic_plots import utils
+from polartoolkit import utils
 from shapely.geometry import LineString, MultiPoint, Point
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
@@ -34,7 +34,7 @@ def plot_levelling_convergence(
     cols = [s for s in results.columns.to_list() if s.startswith(mistie_prefix)]
 
     iters = len(cols)
-    mistie_rmses = [utils.RMSE(results[i]) for i in cols]
+    mistie_rmses = [utils.rmse(results[i]) for i in cols]
 
     fig, ax1 = plt.subplots(figsize=(5, 3.5))
     plt.title(title)
@@ -550,7 +550,7 @@ def interp1d_windows_single_col(
 ):
     """
     Create a window of data either side of NaN's based on "dist_along_line" column and
-    interpolate the value. Usefull when NaN's are sparse, or lines are long. All kwargs
+    interpolate the value. Useful when NaN's are sparse, or lines are long. All kwargs
     are based to function "interp1d"
     """
     df1 = df.copy()
@@ -597,7 +597,7 @@ def interp1d_windows_single_col(
                 elif any(item in str(e) for item in [above_error, below_error]):
                     win += win
                     print(
-                        "bounds error for iterpolation of intersection of lines",
+                        "bounds error for interpolation of intersection of lines",
                         f"{df.intersecting_line.loc[i]} & {df[line_col].loc[i]},"
                         f" doubling window size to {win/1000}km",
                     )
@@ -816,7 +816,7 @@ def calculate_misties(
 
     # df.loc[df.is_intersection==True, mistie_name] = misties
 
-    # print(f"mistie RMSE: {utils.RMSE(inters[mistie_name])}")
+    # print(f"mistie RMSE: {utils.rmse(inters[mistie_name])}")
     if plot is True:
         plotly_points(
             inters,
@@ -894,9 +894,14 @@ def skl_predict_trend(
         ]
     )
 
-    pipeline.fit(fit_df[cols_to_fit[0]][:, np.newaxis], fit_df[cols_to_fit[1]])
+    pipeline.fit(
+        fit_df[cols_to_fit[0]].to_numpy()[:, np.newaxis],
+        fit_df[cols_to_fit[1]].to_numpy(),
+    )
 
-    predicted = pipeline.predict(predict_df[cols_to_predict[0]][:, np.newaxis])
+    predicted = pipeline.predict(
+        predict_df[cols_to_predict[0]].to_numpy()[:, np.newaxis]
+    )
 
     predict_df[cols_to_predict[1]] = predicted
 
@@ -933,7 +938,7 @@ def level_lines(
     for line in lines_to_level:
         line_df = df[df[line_col] == line].copy()
 
-        # get interections of line of interest
+        # get intersections of line of interest
         ints = inters[(inters.line1 == line) | (inters.line2 == line)]
 
         # fit a polynomial trend through the lines mistie values
@@ -989,9 +994,9 @@ def level_lines(
 
         # update main df
         df.loc[df[line_col] == line, levelled_col] = values
-        df.loc[
-            df[line_col] == line, "levelling_correction"
-        ] = line_df.levelling_correction
+        df.loc[df[line_col] == line, "levelling_correction"] = (
+            line_df.levelling_correction
+        )
 
     # add unchanged values for lines not included
     for line in df[line_col].unique():
@@ -1001,7 +1006,7 @@ def level_lines(
             ]
 
     # update mistie with levelled data
-    # print(f"previous mistie RMSE: {utils.RMSE(inters[mistie_col])}")
+    # print(f"previous mistie RMSE: {utils.rmse(inters[mistie_col])}")
     inters_new, df = calculate_misties(
         inters,
         df,
@@ -1077,7 +1082,7 @@ def iterative_line_levelling(
     if levelled_data_prefix is None:
         levelled_data_prefix = f"levelled_data_trend{degree}"
 
-    rmse = utils.RMSE(ints[starting_mistie_col])
+    rmse = utils.rmse(ints[starting_mistie_col])
     print(f"Starting RMS mistie: {rmse} mGal")
 
     for i in range(1, iterations + 1):
@@ -1102,9 +1107,9 @@ def iterative_line_levelling(
                 new_mistie_col=f"{mistie_prefix}_{i}",
                 line_col="line",
             )
-        rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}"])
+        rmse = utils.rmse(ints[f"{mistie_prefix}_{i}"])
         print(f"RMS mistie after iteration {i}: {rmse} mGal")
-        rmse_corr = utils.RMSE(
+        rmse_corr = utils.rmse(
             df[(df.line.isin(flight_line_names))].levelling_correction
         )
         print(f"RMS correction to lines: {rmse_corr} mGal")
@@ -1172,7 +1177,7 @@ def iterative_levelling_alternate(
     if levelled_data_prefix is None:
         levelled_data_prefix = f"levelled_data_trend{degree}"
 
-    rmse = utils.RMSE(ints[starting_mistie_col])
+    rmse = utils.rmse(ints[starting_mistie_col])
     print(f"Starting RMSE mistie: {rmse} mGal")
 
     for i in range(1, iterations + 1):
@@ -1198,9 +1203,9 @@ def iterative_levelling_alternate(
                 new_mistie_col=f"{mistie_prefix}_{i}l",
                 line_col="line",
             )
-        rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}l"])
+        rmse = utils.rmse(ints[f"{mistie_prefix}_{i}l"])
         print(f"RMSE mistie after iteration {i}: L -> T: {rmse} mGal")
-        rmse_corr = utils.RMSE(
+        rmse_corr = utils.rmse(
             df[(df.line.isin(flight_line_names))].levelling_correction
         )
         print(f"RMS correction to lines: {rmse_corr} mGal")
@@ -1220,9 +1225,9 @@ def iterative_levelling_alternate(
                 new_mistie_col=f"{mistie_prefix}_{i}t",
                 line_col="line",
             )
-        rmse = utils.RMSE(ints[f"{mistie_prefix}_{i}t"])
+        rmse = utils.rmse(ints[f"{mistie_prefix}_{i}t"])
         print(f"RMSE mistie after iteration {i}: T -> L: {rmse} mGal")
-        rmse_corr = utils.RMSE(df[(df.line.isin(tie_line_names))].levelling_correction)
+        rmse_corr = utils.rmse(df[(df.line.isin(tie_line_names))].levelling_correction)
         print(f"RMS correction to ties: {rmse_corr} mGal")
 
         if plot_iterations is True:
@@ -1377,7 +1382,7 @@ def plotly_profiles(
 ):
     """
     plot data profiles with plotly
-    currently only allows 3 seperate y axes, set with "y_axes", starting with 1
+    currently only allows 3 separate y axes, set with "y_axes", starting with 1
     """
     df = data.copy()
 
