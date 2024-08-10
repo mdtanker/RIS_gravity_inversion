@@ -1,54 +1,55 @@
-# install and clean
 PROJECT=RIS_gravity_inversion
-STYLE_CHECK_FILES= . #$(PROJECT)
-#
-#
-#
-# INSTALL
-#
-#
-#
+STYLE_CHECK_FILES=.
+
+####
+####
+# install commands
+####
+####
+
 install:
 	pip install -e .
-	# pip install --upgrade git+https://github.com/fatiando/verde
+
+remove:
+	mamba remove --name $(PROJECT) --all
 
 conda_install:
-	mamba env create --file env/environment.yml --name $(PROJECT) --force
+	mamba env create --file environment.yml --name $(PROJECT)
 
 conda_update:
-	mamba env update --file env/environment.yml --name $(PROJECT) --prune
-#
-#
-#
-# STYLE
-#
-#
-#
-format: isort black
+	mamba env update --file environment.yml --name $(PROJECT) --prune
 
-check: isort-check black-check flake8
+####
+####
+# style commands
+####
+####
 
-black:
-	black --line-length 88 $(STYLE_CHECK_FILES)
+format:
+	ruff format $(STYLE_CHECK_FILES)
 
-black-check:
-	black --line-length 88 --check $(STYLE_CHECK_FILES)
+check:
+	ruff check --fix $(STYLE_CHECK_FILES)
 
-isort:
-	isort $(STYLE_CHECK_FILES)
+lint:
+	pre-commit run --all-files
 
-isort-check:
-	isort --check $(STYLE_CHECK_FILES)
+pylint:
+	pylint $(PROJECT)
 
-flake8:
-	flake8p --max-line-length 88 $(STYLE_CHECK_FILES) --exclude=.ipynb_checkpoints
+style: format check lint
 
-#
-#
-#
-# TESTING
-#
-#
-#
-test:
-	pytest --cov=. --no-cov
+####
+####
+# chore commands
+####
+####
+
+clean:
+	find . -name 'tmp_*.pickle' -delete
+
+# find . -name '*.log' -delete
+# find . -name '*.lock' -delete
+# find . -name '*.pkl' -delete
+# find . -name '*.sqlite3' -delete
+# find . -name '*.coverage' -delete

@@ -1,11 +1,10 @@
-
 [build-system]
-requires = ["setuptools>=61.0", "setuptools_scm>=6.2"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "RIS_gravity_inversion"
-dynamic = ["version"]
+version = "0.0.2"
 description = "Gravity inversion for sub-Ross Ice Shelf bathymetry"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,65 +14,54 @@ authors = [
 ]
 keywords = ["geophysics", "gravity", "inversion", "bathymetry", "antarctica"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Science/Research",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Education",
-    "License :: OSI Approved :: MIT License",
-    "Natural Language :: English",
-    "Operating System :: OS Independent",
-    "Topic :: Scientific/Engineering",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Typing :: Typed",
 ]
+
 dependencies = [
-    "antarctic_plots[interactive, viz]>=0.0.6",
-    "snakeviz",
+    "polartoolkit[all]>=0.5.1",
+    "invert4geom>=0.9",
     "matplotlib",
-    "pyvista",
-    "pyvista-xarray",
-    "harmonica",
-    "numba",
-    "optuna",
-    "plotly",
-    "hvplot",
-    "jupyter_bokeh",
-    "jupyterlab",
-    "ipykernel",
-    "numba-progress",
-    "tqdm-joblib",
-    "jupyter-server-proxy",
-    "trame",
-    "pykdtree",
+    "numpy",
+    "scipy<1.14", # issue with UQpy import
     "cmocean",
+    "pandas",
+    "plotly",
+    "pyvista",
+    "seaborn",
+    "verde",
+    "geopandas<1.0",
+    "pygmt",
+    "shapely",
+    "scikit-learn",
+    "optuna",
+    "requests",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
-optional_regressions = [
-    "constrained-linear-regression",
-
-    ]
+dev = [
+  "ruff",
+  "pre-commit",
+  "pylint>=3.2",
+  "ipykernel",
+  "jupyterlab",
+]
 
 [project.urls]
 repository = "https://github.com/mdtanker/RIS_gravity_inversion"
 
-[tool.setuptools]
-packages = ["RIS_gravity_inversion"]
-
-[tool.setuptools.dynamic]
-version = {attr = "RIS_gravity_inversion.__version__"}
-
 [tool.flake8]
 max-line-length = 88
-
-[tool.coverage.run]
-branch = true
-omit = [
-    "*/tests/*",
-    "**/__init__.py",
-    ]
-
-[tool.pytest.ini_options]
-markers = [
-]
