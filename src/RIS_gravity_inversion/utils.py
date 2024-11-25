@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import os
 from getpass import getpass
+from pathlib import Path
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -8,11 +11,9 @@ import pandas as pd
 import pygmt
 import seaborn as sns
 import verde as vd
-from polartoolkit import maps, utils, profiles
+from invert4geom import utils as inv_utils
+from polartoolkit import maps, profiles, utils
 from requests import get
-
-import invert4geom
-
 
 
 def constraint_layout(
@@ -69,7 +70,7 @@ def constraint_layout(
             constraints["inside"] = gdf.within(
                 gpd.read_file("../data/Ross_Sea_outline.shp").geometry[0]
             )
-            constraints.drop(columns="geometry", inplace=True)
+            constraints = constraints.drop(columns="geometry")
         else:
             constraints["inside"] = True
 
@@ -172,15 +173,12 @@ def create_starting_bed(
     points = buffer_and_inside_points
 
     if method == "spline":
-        if weights_col_name is None:
-            weights = None
-        else:
-            weights = points[weights_col_name]
+        weights = None if weights_col_name is None else points[weights_col_name]
 
         coords = (points.easting, points.northing)
         data = points.upward
 
-        spline = invert4geom.utils.best_spline_cv(
+        spline = inv_utils.best_spline_cv(
             coordinates=coords,
             data=data,
             weights=weights,
@@ -272,9 +270,7 @@ def merge_test_train_to_outside(
     outside_constraints = pd.concat([outside_constraints, new_cols], axis=1)
 
     # merge the outside constraints with the test/train constraints
-    merged_df = pd.concat([test_train_df, outside_constraints])
-
-    return merged_df
+    return pd.concat([test_train_df, outside_constraints])
 
 
 def fetch_private_github_file(
@@ -291,10 +287,10 @@ def fetch_private_github_file(
     res = get(fpath)
 
     out_file = f"{output_dir}/{fname}"
-    with open(out_file, "wb+") as f:
+    with Path.open(out_file, "wb+") as f:
         f.write(res.content)
 
-    return os.path.abspath(out_file)
+    return Path.resolve(out_file)
 
 
 def make_surface(
@@ -363,7 +359,7 @@ def make_surface(
 
     if plot is True:
         # plot gravity and percentage contours
-        fig, ax = plt.subplots()
+        _fig, ax = plt.subplots()
         surface.plot(ax=ax, robust=True)
         ax.set_aspect("equal")
 
@@ -373,7 +369,7 @@ def make_surface(
 def gravity_decay_buffer(
     buffer_perc,
     spacing=1e3,
-    interest_region=[-5e3, 5e3, -10e3, 15e3],
+    interest_region=(-5e3, 5e3, -10e3, 15e3),
     top=2e3,
     checkerboard=False,
     density_contrast=False,
@@ -381,7 +377,7 @@ def gravity_decay_buffer(
     obs_height=1200,
     density=2300,
     plot=False,
-    percentages=[0.99, 0.95, 0.90],
+    percentages=(0.99, 0.95, 0.90),
     **kwargs,
 ):
     """
@@ -408,7 +404,7 @@ def gravity_decay_buffer(
     buffer_width = round_to_input(buffer_width, spacing)
 
     # define buffer region
-    buffer_region = utils.alter_region(interest_region, buffer=buffer_width)[1]
+    buffer_region = utils.alter_region(interest_region, zoom=-buffer_width)
 
     # calculate buffer width in terms of number of cells
     buffer_cells = buffer_width / spacing
@@ -437,7 +433,7 @@ def gravity_decay_buffer(
         dens = density
 
     # create prism layer
-    flat_prisms = invert4geom.utils.grids_to_prisms(
+    flat_prisms = inv_utils.grids_to_prisms(
         surface,
         reference,
         density=dens,
@@ -466,7 +462,7 @@ def gravity_decay_buffer(
             forward_df.upward,
         ),
         field="g_z",
-        progressbar=True,
+        progressbar=kwargs.get("progressbar", False),
     )
 
     grav = forward_df.set_index(["northing", "easting"]).to_xarray().forward_total
@@ -478,22 +474,20 @@ def gravity_decay_buffer(
     else:
         max_decay = (grav.values.max() - grav.values.min()) / grav.values.max()
 
+    # results = (
+    #     f"maximum decay: {int(max_decay*100)}% \n"
+    #     f"buffer: {buffer_perc}% / {buffer_width}m / {int(buffer_cells)} cells"
+    # )
+
     if plot is True:
-        results = (
-            f"maximum decay: {int(max_decay*100)}% \n"
-            f"buffer: {buffer_perc}% / {buffer_width}m / {int(buffer_cells)} cells"
-        )
-
-        print(results)
-
-        # plot diagonal profile
+        # plot diagonal profiles
         if kwargs.get("plot_profile", False) is True:
             data_dict = profiles.make_data_dict(
                 ["Forward gravity"],
                 [grav],
                 ["black"],
             )
-            # profile.plot_data(
+            # profiles.plot_data(
             #     "points",
             #     start=(interest_region[0], interest_region[2]),
             #     stop=(interest_region[1], interest_region[3]),
@@ -504,7 +498,7 @@ def gravity_decay_buffer(
                 [surface],
                 ["black"],
             )
-            profiles.plot_profile(
+            fig, _, _ = profiles.plot_profile(
                 "points",
                 start=(buffer_region[0], (buffer_region[3] - buffer_region[2]) / 2),
                 stop=(buffer_region[1], (buffer_region[3] - buffer_region[2]) / 2),
@@ -515,6 +509,7 @@ def gravity_decay_buffer(
                 inset=False,
                 gridlines=False,
             )
+            fig.show()
 
         # plot histogram of gravity decay values
         sns.displot(forward_df.forward_total, kde=True)

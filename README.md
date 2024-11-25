@@ -4,10 +4,13 @@ Here we present a gravity inversion algorithm for modelling bathymetry. This is 
 
 The inversion code in `RIS_gravity_inversion` has mostly been migrated to a separate Python package, [Invert4Geom](https://github.com/mdtanker/invert4geom), while some specific functions for the synthetic tests and specific bathymetry applications are retained here.
 
-This inversion was developed as part of my PhD thesis. Chapter 3 of the thesis tests the inversion on a suite of synthetic and semi-synthetic models. The relevant Jupyter notebooks for this are in `notebooks/synthetic_inversion` and `notebooks/Ross_Sea_inversion`.
+This inversion was developed as part of my PhD thesis. For the state of the software used in the Thesis, see this release: https://github.com/mdtanker/RIS_gravity_inversion/releases/tag/v2.0.0
+
+Chapter 3 of the thesis tests the inversion on a suite of synthetic and semi-synthetic models. The relevant Jupyter notebooks for this are in `notebooks/synthetic_inversion` and `notebooks/Ross_Sea_inversion`.
 
 Chapter 4 of the thesis uses the inversion to model the bathymetry beneath Antarctica's Ross Ice Shelf. The relevant Jupyter notebooks for this are in `notebooks/Ross_Ice_Shelf_inversion`. This includes notebooks for levelling and reducing the airborne gravity data.
 
+This repository has been updated with different synthetic tests since the thesis.
 Below are instructions for using this repository.
 
 ## Getting the code

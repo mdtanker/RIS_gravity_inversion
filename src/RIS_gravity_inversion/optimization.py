@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import optuna
 
@@ -12,7 +14,7 @@ def optimal_buffer(
     density,
     obs_height,
     target,
-    buffer_perc_range=[1, 50],
+    buffer_perc_range=(1, 50),
     n_trials=25,
     density_contrast=False,
     checkerboard=False,

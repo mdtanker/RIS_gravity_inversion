@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import string
 
-import cmocean  # noqa 401
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,17 +10,265 @@ import plotly.express as px
 import pyvista as pv
 import seaborn as sns
 import verde as vd
-from polartoolkit import maps, profiles, utils
+from invert4geom import plotting, uncertainty
+from invert4geom import utils as inv_utils
 from plotly.subplots import make_subplots
+from polartoolkit import maps, profiles, utils
 
+import RIS_gravity_inversion.uncertainties as uncert
 
 sns.set_theme()
+
+
+def plot_latin_hypercube(
+    params_dict,
+    plot_individual_dists=True,
+    plot_correlations=True,
+    plot_1d_projection=True,
+):
+    df = pd.DataFrame(
+        [params_dict[x]["sampled_values"] for x in params_dict],
+    ).transpose()
+
+    df.columns = params_dict.keys()
+
+    # plot individual variables
+    if plot_individual_dists is True:
+        _fig, axes = plt.subplots(
+            1,
+            len(df.columns),
+            figsize=(3 * len(df.columns), 1.8),
+        )
+
+        for i, j in enumerate(df.columns):
+            sns.kdeplot(
+                ax=axes[i],
+                data=df,
+                x=j,
+            )
+            sns.rugplot(ax=axes[i], data=df, x=j, linewidth=2.5, height=0.07)
+            axes[i].set_xlabel(j.replace("_", " ").capitalize())
+            axes[i].ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+            axes[i].set_ylabel(None)
+
+        plt.show()
+
+    # n = np.shape(df)[0]
+    dim = np.shape(df)[1]
+
+    param_values = df.values
+
+    problem = {
+        "num_vars": dim,
+        "names": [i.replace("_", " ") for i in df.columns],
+        "bounds": [[-1, 1]] * dim,
+    }
+
+    # Rescale to the unit hypercube for the analysis
+    sample = inv_utils.scale_normalized(param_values, problem["bounds"])
+
+    if plot_correlations:
+        # Correlation properties
+        [z_mk, pval_mk] = uncert.mann_kendall_test_sample(sample)
+        [rho, pval_pr] = uncert.pearson_test_sample(sample)
+
+        correlation_plots(z_mk, pval_mk, problem["names"])
+        correlation_plots(rho, pval_pr, problem["names"])
+
+    # Space-filling properties
+
+    # 1D projection
+    if plot_1d_projection:
+        x = uncert.projection_1D(sample, problem["names"])
+        print("\nOn a [0, 1] scale 1D coverage is: " + str(x))
+
+    # 2D projection (manageable number of variables, here fixed at 11)
+    if problem["num_vars"] < 11:
+        plotting.projection_2d(sample, problem["names"])
+
+    # L2-star discrepancy
+    # dl2 = uncert.spac-e_filling_measures_discrepancy(sample)
+    # print('\nL2-star discrepancy is: ' + str(dl2))
+
+    # Minimal distance between any two points
+    # d = uncert.space_filling_measures_min_distance(sample, 1)
+    # print('\nThe minimal distance between two points is: ' + str(d) + '\n')
+
+
+def correlation_plots(z_test, p_val, var_names):
+    """
+    Get and plot results for within-sample correlation test, based on
+    1) test results z_test (Figure 1)
+    2) statistical significance pval (Figure 2)
+    other inputs are var_names
+    """
+    # Local variables
+    nvar = len(var_names)
+    pval = 1 - (
+        p_val + np.matlib.eye(nvar)
+    )  # Transformation convenient for plotting below
+
+    ###################################################
+    # Figure 1: correlations
+
+    # Matrix to plot
+    res_mat = np.zeros((nvar, nvar + 1))
+    res_mat[:, 0:-1] = z_test
+
+    # Center the color scale on 0
+    res_mat[0, nvar] = max(np.amax(z_test), -np.amin(z_test))
+    res_mat[1, nvar] = -res_mat[0, nvar]
+
+    # Plotting Pearson test results
+    plt.imshow(res_mat, extent=[0, nvar + 1, 0, nvar], cmap=plt.cm.bwr)
+
+    # Plot specifications
+    ax = plt.gca()
+    ax.set_xlim(0, nvar)  # Last column only to register min and max values for colorbar
+    ax.set_xticks(np.linspace(0.5, nvar - 0.5, num=nvar))
+    ax.set_xticklabels(var_names, rotation=20, ha="right")
+    ax.set_yticks(np.linspace(0.5, nvar - 0.5, num=nvar))
+    ax.set_yticklabels(var_names[::-1])
+    ax.tick_params(axis="x", top=True, bottom=True, labelbottom=True, labeltop=False)
+    ax.tick_params(axis="y", left=True, right=True, labelleft=True, labelright=False)
+    plt.title("Rank correlation between variables' sampled values", size=13, y=1.07)
+    plt.colorbar()
+    plt.show()
+    # plt.clf()
+
+    ###################################################
+    # Figure 2: correlations
+
+    # Matrix to plot
+    res_mat = np.zeros((nvar, nvar + 1))
+
+    # Set the thresholds at +-95%, 99%, and 99.9% significance levels
+    bin_thresholds = [0.9, 0.95, 0.99, 0.999]
+    n_sig = len(bin_thresholds)
+    res_mat[:, 0:-1] = uncert.binning(pval, bin_thresholds)
+
+    # Set the color scale
+    res_mat[0, nvar] = n_sig
+
+    # Common color map
+    cmap = plt.cm.Greys
+    cmaplist = [cmap(0)]
+    for i in range(n_sig):
+        cmaplist.append(cmap(int(255 * (i + 1) / n_sig)))
+    mycmap = cmap.from_list("Custom cmap", cmaplist, n_sig + 1)
+
+    # Plot background mesh
+    mesh_points = np.linspace(0.5, nvar - 0.5, num=nvar)
+    for i in range(nvar):
+        plt.plot(
+            np.arange(0, nvar + 1),
+            mesh_points[i] * np.ones(nvar + 1),
+            c="k",
+            linewidth=0.3,
+            linestyle=":",
+        )
+        plt.plot(
+            mesh_points[i] * np.ones(nvar + 1),
+            np.arange(0, nvar + 1),
+            c="k",
+            linewidth=0.3,
+            linestyle=":",
+        )
+
+    # Plotting MK test results
+    plt.imshow(res_mat, extent=[0, nvar + 1, 0, nvar], cmap=mycmap)
+
+    # Plot specifications
+    ax = plt.gca()
+    ax.set_xlim(0, nvar)  # Last column only to register min and max values for colorbar
+    ax.set_xticks(mesh_points)
+    ax.set_xticklabels(var_names, rotation=20, ha="right")
+    ax.set_yticks(mesh_points)
+    ax.set_yticklabels(var_names[::-1])
+    ax.tick_params(axis="x", top=True, bottom=True, labelbottom=True, labeltop=False)
+    ax.tick_params(axis="y", left=True, right=True, labelleft=True, labelright=False)
+    plt.title("Significance of the rank correlations", size=13, y=1.07)
+    colorbar = plt.colorbar()
+    colorbar.set_ticks(
+        np.linspace(res_mat[0, nvar] / 10, 9 * res_mat[0, nvar] / 10, num=n_sig + 1)
+    )
+    cb_labels = ["None"]
+    for i in range(n_sig):
+        cb_labels.append(str(bin_thresholds[i] * 100) + "%")
+    colorbar.set_ticklabels(cb_labels)
+    plt.show()
+    # plt.clf()
+
+
+def uncert_plots(
+    results,
+    inversion_region,
+    spacing,
+    bathymetry,
+    constraint_points=None,
+    weight_by=None,
+):
+    if (weight_by == "constraints") & (constraint_points is None):
+        msg = "must provide constraint_points if weighting by constraints"
+        raise ValueError(msg)
+
+    stats_ds = uncertainty.merged_stats(
+        results=results,
+        plot=True,
+        constraints_df=constraint_points,
+        weight_by=weight_by,
+        region=inversion_region,
+    )
+
+    try:
+        mean = stats_ds.weighted_mean
+        stdev = stats_ds.weighted_stdev
+    except AttributeError:
+        mean = stats_ds.z_mean
+        stdev = stats_ds.z_stdev
+
+    _ = utils.grd_compare(
+        bathymetry,
+        mean,
+        region=vd.pad_region(inversion_region, -spacing),
+        plot=True,
+        grid1_name="True topography",
+        grid2_name="Inverted topography",
+        robust=True,
+        hist=True,
+        inset=False,
+        verbose="q",
+        title="difference",
+        grounding_line=False,
+        reverse_cpt=True,
+        cmap="rain",
+        points=constraint_points,
+        points_style="x.3c",
+    )
+    _ = utils.grd_compare(
+        np.abs(bathymetry - mean),
+        stdev,
+        region=vd.pad_region(inversion_region, -spacing),
+        plot=True,
+        grid1_name="True error",
+        grid2_name="Stochastic uncertainty",
+        cmap="thermal",
+        robust=True,
+        hist=True,
+        inset=False,
+        verbose="q",
+        title="difference",
+        grounding_line=False,
+        points=constraint_points,
+        points_style="x.3c",
+        points_fill="white",
+    )
+    return stats_ds
 
 
 def plot_inversion_ensemble_results_profile(
     prism_results,
     grav_results,
-    input_forward_column,
     name_prefixes,
     start=None,
     stop=None,
@@ -37,7 +286,7 @@ def plot_inversion_ensemble_results_profile(
     # turn dataframe into datasets
     final_surfaces = []
     surface_errors = []
-    for i, j in enumerate(prism_results):
+    for j in prism_results:
         prism_ds = j.set_index(["northing", "easting"]).to_xarray()
         cols = [s for s in j.columns.to_list() if "_layer" in s]
         final = prism_ds[cols[-1]]
@@ -52,7 +301,7 @@ def plot_inversion_ensemble_results_profile(
         final_forwards = []
         final_residuals = []
         regional_errors = []
-        for i, j in enumerate(grav_results):
+        for j in grav_results:
             grav_ds = j.set_index(["northing", "easting"]).to_xarray()
             cols = [s for s in j.columns.to_list() if "_forward_grav" in s]
             final_forward = grav_ds[cols[-1]]
@@ -69,12 +318,9 @@ def plot_inversion_ensemble_results_profile(
         stop = [reg[1], reg[3]]
 
     if background is None:
-        if true_surface is not None:
-            background = true_surface
-        else:
-            background = final_surfaces[0]
+        background = true_surface if true_surface is not None else final_surfaces[0]
 
-    # extract layers for profile plot
+    # extract layers for profiles plot
     topo_names = [f"{x} bed error" for x in name_prefixes]
     topo_grids = surface_errors
 
@@ -83,12 +329,12 @@ def plot_inversion_ensemble_results_profile(
     else:
         colors = [utils.random_color() for x in topo_grids]
 
-    if kwargs.get("data_color", None) is not None:
+    if kwargs.get("data_color") is not None:
         data_colors = kwargs.get("data_color")
     else:
         data_colors = colors
 
-    if kwargs.get("layers_color", None) is not None:
+    if kwargs.get("layers_color") is not None:
         layers_colors = kwargs.get("layers_color")
     else:
         layers_colors = colors
@@ -118,7 +364,7 @@ def plot_inversion_ensemble_results_profile(
     if data_frame is None:
         data_frame = ["neSW", "ya+lregional error (mGal)", "xag+lDistance (m)"]
 
-    fig, df_layers, df_data = profiles.plot_profile(
+    fig, _df_layers, _df_data = profiles.plot_profile(
         "points",
         fig_height=8,
         data_height=3.5,
@@ -160,7 +406,6 @@ def plot_regional_gridding_ensemble_profile(
     name_prefixes,
     start=None,
     stop=None,
-    polyline=None,
     true_regional=None,
     constraints=None,
     background=None,
@@ -173,7 +418,7 @@ def plot_regional_gridding_ensemble_profile(
     regionals = []
     residuals = []
     regional_errors = []
-    for i, j in enumerate(grav_anomalies):
+    for j in grav_anomalies:
         grav_ds = j.set_index(["northing", "easting"]).to_xarray()
         residuals.append(grav_ds.res)
         regionals.append(grav_ds.reg)
@@ -188,12 +433,9 @@ def plot_regional_gridding_ensemble_profile(
         stop = [reg[1], reg[3]]
 
     if background is None:
-        if true_regional is not None:
-            background = true_regional
-        else:
-            background = grav_ds.reg
+        background = true_regional if true_regional is not None else grav_ds.reg
 
-    # extract layers for profile plot
+    # extract layers for profiles plot
     topo_names = [f"{x}, regional" for x in name_prefixes]
     topo_grids = regionals
 
@@ -202,12 +444,12 @@ def plot_regional_gridding_ensemble_profile(
     else:
         colors = [utils.random_color() for x in topo_grids]
 
-    if kwargs.get("data_color", None) is not None:
+    if kwargs.get("data_color") is not None:
         data_colors = kwargs.get("data_color")
     else:
         data_colors = colors
 
-    if kwargs.get("layers_color", None) is not None:
+    if kwargs.get("layers_color") is not None:
         layers_colors = kwargs.get("layers_color")
     else:
         layers_colors = colors
@@ -231,7 +473,7 @@ def plot_regional_gridding_ensemble_profile(
     if data_frame is None:
         data_frame = ["neSW", "ya+lgravity (mGal)", "xag+lDistance (m)"]
 
-    fig, df_layers, df_data = profiles.plot_profile(
+    fig, _df_layers, _df_data = profiles.plot_profile(
         "points",
         fig_height=8,
         data_height=4,
@@ -271,7 +513,6 @@ def plot_regional_gridding_ensemble_profile(
 def plot_inversion_results_profile(
     prism_results,
     grav_results,
-    input_forward_column,
     observed_grav_column="Gobs_shift",
     start=None,
     stop=None,
@@ -310,7 +551,7 @@ def plot_inversion_results_profile(
     if background is None:
         background = final_surface
 
-    # extract layers for profile plot
+    # extract layers for profiles plot
     topo_names = [
         "Starting bed",
         "Inverted bed",
@@ -327,25 +568,14 @@ def plot_inversion_results_profile(
 
     data_names = [
         "Initial residual gravity",
-        # "Final residual",
-        # "Initial forward",
         "Final forward gravity",
         "Observed gravity",
-        #         "Initial misfit",
-        #         "Final misfit",
-        #         "Final forward",
     ]
 
     data_grids = [
         initial_residual,
-        # final_residual,
-        # grav_ds[input_forward_column],
         final_forward + grav_ds.reg,
         grav_ds[observed_grav_column],
-        #         grav_ds.misfit,
-        #         final_residual+grav_ds.reg,
-        #
-        #         final_forward,
     ]
 
     data_dict = profiles.make_data_dict(
@@ -356,12 +586,6 @@ def plot_inversion_results_profile(
 
     if true_surface is not None:
         layers_dict["True bed"] = dict(name="True bed", grid=true_surface, color="red")
-        #     old_dict = layers_dict.copy()
-        #     layers_dict = {
-        #         "True bed": dict(
-        #             name="True bed", grid=true_surface, color="red")
-        #         }
-        #     layers_dict.update(old_dict)
 
         if plot_bed_misfit is True:
             data_dict["Bed misfit"] = dict(
@@ -376,7 +600,7 @@ def plot_inversion_results_profile(
     if data_frame is None:
         data_frame = ["neSW", "ya+lgravity (mGal)", "xag+lDistance (m)"]
 
-    fig, df_layers, df_data = profiles.plot_profile(
+    fig, _df_layers, _df_data = profiles.plot_profile(
         "points",
         fig_height=6.5,
         data_height=3,
@@ -413,41 +637,92 @@ def plot_inversion_results_profile(
     return fig
 
 
-def plot_noise_spacing_ensemble(
+def plot_2var_ensemble(
     df,
+    x,
+    y,
+    figsize=(9, 6),
+    x_title=None,
+    y_title=None,
     background="score",
     background_title=None,
+    background_cmap="cmo.matter",
+    background_lims=None,
+    background_cpt_lims=None,
     points_color=None,
+    points_share_cmap=False,
     points_size=None,
     points_scaling=1,
+    points_label=None,
+    points_title=None,
     points_color_log=False,
+    points_cmap="cmo.gray_r",
+    points_lims=None,
+    points_edgecolor="black",
     background_color_log=False,
     background_robust=False,
     points_robust=False,
     plot_contours=None,
+    contour_color="black",
+    plot_title=None,
+    logx=False,
+    logy=False,
+    flipx=False,
 ):
-    fig, ax = plt.subplots(figsize=(9, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     df = df.copy()
 
-    df["spacing"] = (df.spacing / 1e3).astype(int)
-
-    noise_levels = df.noise.unique()
-    spacings = df.spacing.unique()
-
-    noise_step = noise_levels[1] - noise_levels[0]
-    spacing_step = spacings[1] - spacings[0]
-
-    extent = [
-        df.noise.min() - noise_step / 2,
-        df.noise.max() + noise_step / 2,
-        df.spacing.min() - spacing_step / 2,
-        df.spacing.max() + spacing_step / 2,
-    ]
-
-    ax.set_xlim(extent[0], extent[1])
-    ax.set_ylim(extent[2], extent[3])
-
     ax.grid(which="major", visible=False)
+
+    norm = mpl.colors.LogNorm() if background_color_log is True else None
+
+    cmap = plt.get_cmap(background_cmap)
+
+    if background_lims is None:
+        background_lims = utils.get_min_max(df[background], robust=background_robust)
+    else:
+        cmap.set_under("g")
+
+    grd = df.set_index([y, x]).to_xarray()[background]
+
+    if background_cpt_lims is not None:
+        background_lims = background_cpt_lims
+
+    plot_background = grd.plot(
+        ax=ax,
+        cmap=cmap,
+        vmin=background_lims[0],
+        vmax=background_lims[1],
+        norm=norm,
+        edgecolors="w",
+        linewidth=0.5,
+        add_colorbar=False,
+        # xticks=df[x].unique().round(-2),
+        # yticks=df[y].unique().astype(int),
+    )
+    # ax.set_xticks(ax.get_xticks()[1:-1])
+
+    cbar = fig.colorbar(plot_background, extend="both")
+    cbar.set_label(background_title)
+
+    if logy:
+        ax.set_yscale("log")
+    if logx:
+        ax.set_xscale("log")
+
+    # x = df[x].unique()
+    # y = df[y].unique()
+    # plt.xticks(x[:-1]+0.5)
+    # plt.yticks(y[:-1]+0.5)
+
+    if plot_contours is not None:
+        contour = grd.plot.contour(
+            levels=plot_contours,
+            colors=contour_color,
+            ax=ax,
+        )
+
+        cbar.add_lines(contour)
 
     if (points_color is not None) or (points_size is not None):
         if points_color is None:
@@ -455,30 +730,42 @@ def plot_noise_spacing_ensemble(
         if points_size is None:
             points_size = 50
 
-        lims = utils.get_min_max(points_color, robust=points_robust)
+        points_cmap = plt.get_cmap(points_cmap)
 
-        if points_color_log is True:
-            norm = mpl.colors.LogNorm(
-                vmin=lims[0],
-                vmax=lims[1],
-            )
-            vmin = None
-            vmax = None
+        if points_share_cmap is True:
+            points_cmap = cmap
+            vmin = background_lims[0]
+            vmax = background_lims[1]
         else:
-            norm = None
-            vmin = lims[0]
-            vmax = lims[1]
+            if points_lims is None:
+                points_lims = utils.get_min_max(df[points_color], robust=points_robust)
+            else:
+                points_cmap.set_under("g")
+
+            if points_color_log is True:
+                norm = mpl.colors.LogNorm(
+                    vmin=points_lims[0],
+                    vmax=points_lims[1],
+                )
+                vmin = None
+                vmax = None
+            else:
+                norm = None
+                vmin = points_lims[0]
+                vmax = points_lims[1]
+
         points = ax.scatter(
-            df.noise,
-            df.spacing,
+            df[x],
+            df[y],
             s=points_size * points_scaling,
-            c=points_color,
-            cmap="cmo.deep",
+            c=df[points_color],
+            cmap=points_cmap,
             zorder=10,
-            edgecolors="black",
+            edgecolors=points_edgecolor,
             norm=norm,
             vmin=vmin,
             vmax=vmax,
+            label=points_label,
         )
         if isinstance(points_size, pd.Series):
             kw = dict(prop="sizes", num=3, func=lambda s: s / points_scaling)
@@ -489,53 +776,37 @@ def plot_noise_spacing_ensemble(
                 ncol=3,
                 title=points_size.name,
             )
+        if points_share_cmap is False:
+            cbar2 = fig.colorbar(points, extend="both")
+            try:  # noqa: SIM105
+                cbar2.set_label(points_color.name)
+            except AttributeError:
+                pass
+            if points_title is None:
+                points_title = points_label
+            cbar2.set_label(points_title)
+        # else:
+        #     cbar2 = cbar
 
-        cbar2 = fig.colorbar(points)
-        try:
-            cbar2.set_label(points_color.name)
-        except AttributeError:
-            pass
+        if points_label is not None:
+            ax.legend(
+                loc="lower left",
+                bbox_to_anchor=(1, 1),
+            )
 
-    if background_color_log is True:
-        norm = mpl.colors.LogNorm()
-    else:
-        norm = None
+    if flipx:
+        ax.invert_xaxis()
 
-    lims = utils.get_min_max(df[background], robust=background_robust)
-    extent = [plt.xlim()[0], plt.xlim()[1], plt.ylim()[1], plt.ylim()[0]]
+    # ax.ticklabel_format(useOffset=False, style='plain')
 
-    plot_background = ax.imshow(
-        df.pivot("spacing", "noise", background),
-        # alpha=.8,
-        extent=extent,
-        aspect="auto",
-        cmap=plt.get_cmap("cmo.matter", 10),
-        vmin=lims[0],
-        vmax=lims[1],
-        norm=norm,
-        origin="upper",
-    )
+    if x_title is None:
+        x_title = x
+    if y_title is None:
+        y_title = y
+    ax.set_xlabel(x_title)
+    ax.set_ylabel(y_title)
 
-    cbar = fig.colorbar(plot_background)
-    cbar.set_label(background_title)
-
-    ax.set_xlabel("Gravity noise level (%)")
-    ax.set_ylabel("Survey line spacing (km)")
-
-    import scipy.ndimage
-
-    if plot_contours is not None:
-        data = df.pivot("spacing", "noise", background)
-        data = scipy.ndimage.zoom(data, 5)
-        contour = ax.contour(
-            data,
-            colors="black",
-            levels=plot_contours,
-            corner_mask=False,
-            extent=extent,
-            origin="upper",
-        )
-        cbar.add_lines(contour)
+    ax.set_title(plot_title, fontsize=16)
 
     return fig
 
@@ -634,21 +905,18 @@ def plot_noise_cellsize_ensemble(
             )
 
         cbar2 = fig.colorbar(points)
-        try:
+        try:  # noqa: SIM105
             cbar2.set_label(points_color.name)
         except AttributeError:
             pass
 
-    if background_color_log is True:
-        norm = mpl.colors.LogNorm()
-    else:
-        norm = None
+    norm = mpl.colors.LogNorm() if background_color_log is True else None
 
     lims = utils.get_min_max(df[background], robust=background_robust)
     extent = [plt.xlim()[0], plt.xlim()[1], plt.ylim()[1], plt.ylim()[0]]
 
     plot_background = ax.imshow(
-        df.pivot("cell_size", "noise", background),
+        df.pivot_table("cell_size", "noise", background),
         # alpha=.8,
         extent=extent,
         aspect="auto",
@@ -668,7 +936,7 @@ def plot_noise_cellsize_ensemble(
     import scipy.ndimage
 
     if plot_contours is not None:
-        data = df.pivot("cell_size", "noise", background)
+        data = df.pivot_table("cell_size", "noise", background)
         data = scipy.ndimage.zoom(data, 10)
         contour = ax.contour(
             data,
@@ -688,71 +956,234 @@ def plot_noise_cellsize_ensemble(
 
 def plot_ensemble_as_lines(
     results,
-    x_col,
+    x,
+    y,
     groupby_col,
+    figsize=(5, 3.5),
+    x_lims=None,
+    y_lims=None,
     x_label=None,
+    y_label="Bathymetry RMSE (m)",
     cbar_label=None,
     logy=False,
     logx=False,
     trend_line=False,
+    horizontal_line=None,
+    horizontal_line_label=None,
+    horizontal_line_label_loc="best",
+    horizontal_line_color="gray",
+    plot_title=None,
+    slope_min_max=False,
+    slope_mean=False,
 ):
     sns.set_theme()
 
-    fig, ax1 = plt.subplots(figsize=(5, 3.5))
-    # plt.title('')
+    fig, ax1 = plt.subplots(figsize=figsize)
 
     grouped = results.groupby(groupby_col)
 
     norm = plt.Normalize(
         vmin=results[groupby_col].values.min(), vmax=results[groupby_col].values.max()
     )
-
-    for name, group in grouped:
+    slopes = []
+    lines = []
+    for _, (name, group) in enumerate(grouped):
         ax1.plot(
-            group[x_col],
-            group.RMSE,
+            group[x],
+            group[y],
             ".-",
             markersize=7,
             color=plt.cm.viridis(norm(name)),
         )
-    if trend_line:
-        z = np.polyfit(results[x_col], results.RMSE, 1)
-        y_hat = np.poly1d(z)(results[x_col])
+        if trend_line and slope_min_max:
+            z = np.polyfit(group[x], group[y], 1)
+            slopes.append(z[0])
+            lines.append(np.poly1d(z)(results[x]))
 
-        ax1.plot(results[x_col], y_hat, "r", lw=1)
-        text = f"$slope={z[0]:.3g}$"
-        plt.gca().text(
-            0.05,
-            0.95,
-            text,
-            transform=plt.gca().transAxes,
-            fontsize=10,
-            verticalalignment="top",
-        )
+    if trend_line:
+        if slope_min_max:
+            text = rf"$min\ slope={min(slopes):.3g}$"
+            plt.gca().text(
+                0.05,
+                0.95,
+                text,
+                transform=plt.gca().transAxes,
+                fontsize=10,
+                verticalalignment="top",
+            )
+            ax1.plot(results[x], lines[np.argmin(slopes)], "r", lw=1)
+
+            text = rf"$max\ slope={max(slopes):.3g}$"
+            plt.gca().text(
+                0.05,
+                0.90,
+                text,
+                transform=plt.gca().transAxes,
+                fontsize=10,
+                verticalalignment="top",
+            )
+            ax1.plot(results[x], lines[np.argmax(slopes)], "r", lw=1)
+
+            # text = f"$mean\ slope={np.mean(slopes):.3g}$"
+            # plt.gca().text(
+            #     0.05,
+            #     0.85,
+            #     text,
+            #     transform=plt.gca().transAxes,
+            #     fontsize=10,
+            #     verticalalignment="top",
+            # )
+            # ax1.plot(results[x], lines[np.argmean(slopes)], "r", lw=1)
+        if slope_mean:
+            text = rf"$mean\ slope={np.median(slopes):.3g}$"
+            plt.gca().text(
+                0.05,
+                0.85,
+                text,
+                transform=plt.gca().transAxes,
+                fontsize=10,
+                verticalalignment="top",
+            )
+            ax1.plot(results[x], lines[np.argsort(slopes)[len(slopes) // 2]], "r", lw=1)
+
+        else:
+            z = np.polyfit(results[x], results[y], 1)
+            y_hat = np.poly1d(z)(results[x])
+
+            ax1.plot(results[x], y_hat, "r", lw=1)
+            text = f"$slope={z[0]:.3g}$"
+            plt.gca().text(
+                0.05,
+                0.95,
+                text,
+                transform=plt.gca().transAxes,
+                fontsize=10,
+                verticalalignment="top",
+            )
 
     sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
-    cbar = plt.colorbar(sm)
+    cbar = plt.colorbar(sm, ax=ax1)
     cbar.set_label(cbar_label)
+
+    if horizontal_line is not None:
+        plt.axhline(
+            y=horizontal_line,
+            linewidth=2,
+            color=horizontal_line_color,
+            linestyle="dashed",
+            label=horizontal_line_label,
+        )
 
     ax1.set_xlabel(
         x_label,
     )
+    # ax1.set_xticks(list(ax1.get_xticks()) + list(ax1.get_xlim()))
+
+    if x_lims is not None:
+        ax1.set_xlim(x_lims)
+    if y_lims is not None:
+        ax1.set_ylim(y_lims)
+    if logy:
+        ax1.set_yscale("log")
+    if logx:
+        ax1.set_xscale("log")
+
+    ax1.set_ylabel(y_label)
+
+    if horizontal_line is not None:
+        plt.legend(loc=horizontal_line_label_loc)
+
+    plt.title(plot_title)
+    plt.tight_layout()
+
+    return fig
+
+
+def plot_1var_ensemble(
+    df,
+    x,
+    y,
+    title,
+    xlabel,
+    ylabel,
+    highlight_points=None,
+    horizontal_line=None,
+    horizontal_line_label=None,
+    starting_error=None,
+    logy=False,
+    logx=False,
+):
+    sns.set_theme()
+
+    df = df.copy()
+
+    df = df.sort_values(x)
+
+    fig, ax1 = plt.subplots(figsize=(5, 3.5))
+    plt.title(title)
+
+    if horizontal_line is not None:
+        plt.axhline(
+            y=horizontal_line,
+            linewidth=2,
+            color="gray",
+            linestyle="dashed",
+            label=horizontal_line_label,
+        )
+
+    ax1.plot(df[x], df[y], "bd-", markersize=7, label="inverted")
+    ax1.set_xlabel(
+        xlabel,
+        # color="b",
+    )
+
+    if starting_error is not None:
+        ax1.plot(
+            df[x],
+            df[starting_error],
+            "g.-",
+            markersize=10,
+            label="starting",
+            zorder=1,
+        )
 
     if logy:
         ax1.set_yscale("log")
     if logx:
         ax1.set_xscale("log")
 
-    ax1.set_ylabel("Bed RMSE (m)")
+    ax1.set_ylabel(ylabel)
+    # ax1.tick_params(axis="x", colors='b', which="both")
+    ax1.set_zorder(2)
 
-    # plt.legend(loc='best')
+    if highlight_points is not None:
+        for i, ind in enumerate(highlight_points):
+            plt.plot(
+                df[x].loc[ind],
+                df[y].loc[ind],
+                "s",
+                markersize=12,
+                color="b",
+                zorder=3,
+            )
+            plt.annotate(
+                string.ascii_lowercase[i + 1],
+                (df[x].loc[ind], df[y].loc[ind]),
+                fontsize=15,
+                color="white",
+                ha="center",
+                va="center",
+                zorder=4,
+            )
+
+    plt.legend(loc="best")
     plt.tight_layout()
 
 
 def plot_constraint_spacing_ensemble(
     results,
     plot_constraints=False,
-    plot_starting_error=False,
+    starting_error=None,
     highlight_points=None,
     subplot_label=None,
     horizontal_line=None,
@@ -763,7 +1194,7 @@ def plot_constraint_spacing_ensemble(
 
     df = results.copy()
 
-    df.sort_values("spacing", inplace=True)
+    df = df.sort_values("spacing")
 
     fig, ax1 = plt.subplots(figsize=(5, 3.5))
     plt.title("Effects of constraint spacing")
@@ -788,10 +1219,10 @@ def plot_constraint_spacing_ensemble(
     # ax1.tick_params(axis="x", colors='b', which="both")
     ax1.set_zorder(2)
 
-    if plot_starting_error:
+    if starting_error is not None:
         ax1.plot(
             df.spacing / 1e3,
-            df.starting_errors,
+            df[starting_error],
             "g.-",
             markersize=10,
             label="starting",
@@ -961,7 +1392,7 @@ def show_prism_layers(
     prisms: list,
     cmap: str = "viridis",
     color_by: str = "density",
-    region: list = None,
+    region: list | None = None,
     clip_box: bool = True,
     **kwargs,
 ):
@@ -994,12 +1425,12 @@ def show_prism_layers(
         notebook=True,
     )
 
-    opacity = kwargs.get("opacity", None)
+    opacity = kwargs.get("opacity")
 
     for i, j in enumerate(prisms):
         # if region is given, clip model
         if region is not None:
-            j = j.sel(
+            j = j.sel(  # noqa: PLW2901
                 easting=slice(region[0], region[1]),
                 northing=slice(region[2], region[3]),
             )
@@ -1027,10 +1458,7 @@ def show_prism_layers(
                 invert=True,
             )
 
-        if opacity is not None:
-            trans = opacity[i]
-        else:
-            trans = None
+        trans = opacity[i] if opacity is not None else None
 
         if color_by == "constant":
             colors = kwargs.get(
@@ -1074,10 +1502,10 @@ def show_prism_layers(
 
 def plot_prism_layers(
     layers: dict,
-    region: list = None,
+    region: list | None = None,
     cmap: str = "viridis",
     plot_type: str = "2D",
-    layers_for_3d: list = None,
+    layers_for_3d: list | None = None,
     **kwargs,
 ):
     """
@@ -1108,7 +1536,7 @@ def plot_prism_layers(
 
     if plot_type == "3D":
         if layers_for_3d is not None:
-            layers_to_plot = dict((k, layers[k]) for k in layers_for_3d)
+            layers_to_plot = {k: layers[k] for k in layers_for_3d}
         else:
             layers_to_plot = layers
 
@@ -1131,7 +1559,7 @@ def plot_prism_layers(
         # plot prisms layers in 3D with pyvista
         show_prism_layers(
             prism_list,
-            cmap=kwargs.get("cmap", None),
+            cmap=kwargs.get("cmap"),
             color_by=kwargs.get("color_by", "constant"),
             region=region,
             clip_box=kwargs.get("clip_box", True),

@@ -3,7 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - polartoolkit[all]>=0.5.1
-  - invert4geom[all]>=0.9
+  - polartoolkit[all]>=0.6
+  - invert4geom[all]>=0.11
   - geopandas<1.0
   - jupyterlab_execute_time

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import itertools
 import math
 import warnings
@@ -36,7 +38,7 @@ def plot_levelling_convergence(
     iters = len(cols)
     mistie_rmses = [utils.rmse(results[i]) for i in cols]
 
-    fig, ax1 = plt.subplots(figsize=(5, 3.5))
+    _fig, ax1 = plt.subplots(figsize=(5, 3.5))
     plt.title(title)
     ax1.plot(range(iters), mistie_rmses, "bo-")
     ax1.set_xlabel("Iteration")
@@ -74,7 +76,6 @@ def create_intersection_table(
     exclude_ints=None,
     cutoff_dist=None,
     plot=True,
-    robust=False,
 ):
     """
     create a dataframe which contains the intersections between lines. Intersections are
@@ -100,7 +101,7 @@ def create_intersection_table(
     if "is_intersection" in gdf.columns:
         rows_to_drop = gdf[gdf.is_intersection]
         gdf = gdf.drop(index=rows_to_drop.index)
-    gdf.drop(columns="is_intersection", inplace=True, errors="ignore")
+    gdf = gdf.drop(columns="is_intersection", errors="ignore")
 
     # group by lines
     grouped = gdf.groupby([line_col_name], as_index=False)["geometry"]
@@ -118,7 +119,7 @@ def create_intersection_table(
     line2_names = []
     line1_dists = []
     line2_dists = []
-    for i, p in enumerate(inters.geometry):
+    for p in inters.geometry:
         # look into shapely.interpolate() to get points based on distance along line
         # look into shapely.project() to get distance along line1 which is closest point
         # to line2
@@ -128,7 +129,7 @@ def create_intersection_table(
         # find nearest 2 lines to intersection point using LineString's
         grouped["dist"] = grouped.geometry.distance(p)
         nearest_lines = grouped.sort_values(by="dist")[[line_col_name]].iloc[0:2]
-        nearest_lines.sort_values(by=[line_col_name], inplace=True)
+        nearest_lines = nearest_lines.sort_values(by=[line_col_name])
 
         # get line names
         line1 = nearest_lines.iloc[0][line_col_name]
@@ -189,10 +190,7 @@ def create_intersection_table(
                     (inters.line1 == i[0]) | (inters.line2 == i[0])
                 ].index.values
             exclude_inds.extend(ind)
-        inters.drop(
-            index=exclude_inds,
-            inplace=True,
-        )
+        inters = inters.drop(index=exclude_inds)
 
     a = len(inters)
     # keep only the closest of duplicated intersections
@@ -222,9 +220,7 @@ def create_intersection_table(
             cmap="greys",
         )
 
-    inters.drop(columns=["line1_dist", "line2_dist"], inplace=True)
-
-    return inters
+    return inters.drop(columns=["line1_dist", "line2_dist"])
 
 
 def add_intersections(
@@ -239,7 +235,7 @@ def add_intersections(
     if "is_intersection" in gdf.columns:
         rows_to_drop = gdf[gdf.is_intersection]
         gdf = gdf.drop(index=rows_to_drop.index)
-    gdf.drop(columns="is_intersection", inplace=True, errors="ignore")
+    gdf = gdf.drop(columns="is_intersection", errors="ignore")
 
     prior_length = len(gdf)
 
@@ -274,14 +270,14 @@ def add_intersections(
     assert len(gdf) == prior_length + (2 * len(inters))
 
     # sort by lines
-    gdf.sort_values(by=line_col_name, inplace=True)
+    gdf = gdf.sort_values(by=line_col_name)
 
     # get distance along each line
     gdf["dist_along_line"] = distance_along_line(gdf, line_col_name=line_col_name)
 
     # sort by distance and reset index
-    gdf.sort_values(by=[line_col_name, "dist_along_line"], inplace=True)
-    gdf.reset_index(drop=True, inplace=True)
+    gdf = gdf.sort_values(by=[line_col_name, "dist_along_line"])
+    gdf = gdf.reset_index(drop=True)
 
     # add dist along line to intersections dataframe
     # iterate through intersections
@@ -326,8 +322,8 @@ def extend_lines(
         #   [Point(list(line1.coords)[0]), Point(list(line1.coords)[-1])])
         # line2_endpoints = MultiPoint(
         #   [Point(list(line2.coords)[0]), Point(list(line2.coords)[-1])])
-        line1_endpoints = MultiPoint([list(line1.coords)[0], list(line1.coords)[-1]])
-        line2_endpoints = MultiPoint([list(line2.coords)[0], list(line2.coords)[-1]])
+        line1_endpoints = MultiPoint([list(line1.coords)[0], list(line1.coords)[-1]])  # noqa: RUF015
+        line2_endpoints = MultiPoint([list(line2.coords)[0], list(line2.coords)[-1]])  # noqa: RUF015
 
         # print(line1_endpoints)
         # print(line2_endpoints)
@@ -368,7 +364,6 @@ def extend_lines(
             )
             assert len(list(line2.coords)) + 1 == len(list(line2_new.coords))
             print(f"extended line: {name1}")
-            gdf2
         else:
             line2_new = line2
 
@@ -388,9 +383,11 @@ def extend_lines(
         # print(len(list(line2_new.coords)))
 
 
-def get_line_intersections(lines, buffer_dist=None):
+def get_line_intersections(
+    lines,
+):
     """
-    adapted from https://gis.stackexchange.com/questions/137909/intersecting-lines-to-get-crossings-using-python-with-qgis # noqa
+    adapted from https://gis.stackexchange.com/questions/137909/intersecting-lines-to-get-crossings-using-python-with-qgis
     """
 
     inters = []
@@ -398,26 +395,26 @@ def get_line_intersections(lines, buffer_dist=None):
         if line1.intersects(line2):
             inter = line1.intersection(line2)
 
-            if "Point" == inter.type:
+            if inter.type == "Point":
                 inters.append(inter)
-            elif "MultiPoint" == inter.type:
-                inters.extend([pt for pt in inter.geoms])
-            elif "MultiLineString" == inter.type:
-                multiLine = [line for line in inter.geoms]
-                first_coords = multiLine[0].coords[0]
-                last_coords = multiLine[len(multiLine) - 1].coords[1]
+            elif inter.type == "MultiPoint":
+                inters.extend(list(inter.geoms))
+            elif inter.type == "MultiLineString":
+                multi_line = list(inter.geoms)
+                first_coords = multi_line[0].coords[0]
+                last_coords = multi_line[len(multi_line) - 1].coords[1]
                 inters.append(Point(first_coords[0], first_coords[1]))
                 inters.append(Point(last_coords[0], last_coords[1]))
-            elif "GeometryCollection" == inter.type:
+            elif inter.type == "GeometryCollection":
                 for geom in inter:
-                    if "Point" == geom.type:
+                    if geom.type == "Point":
                         inters.append(geom)
-                    elif "MultiPoint" == geom.type:
-                        inters.extend([pt for pt in geom])
-                    elif "MultiLineString" == geom.type:
-                        multiLine = [line for line in geom]
-                        first_coords = multiLine[0].coords[0]
-                        last_coords = multiLine[len(multiLine) - 1].coords[1]
+                    elif geom.type == "MultiPoint":
+                        inters.extend(list(geom))
+                    elif geom.type == "multi_lineString":
+                        multi_line = list(geom)
+                        first_coords = multi_line[0].coords[0]
+                        last_coords = multi_line[len(multi_line) - 1].coords[1]
                         inters.append(Point(first_coords[0], first_coords[1]))
                         inters.append(Point(last_coords[0], last_coords[1]))
     return inters
@@ -524,7 +521,8 @@ def interp1d_single_col(
     elif engine == "scipy":
         filled = scipy_interp1d(**args)
     else:
-        raise ValueError("invalid string for engine type")
+        msg = "invalid string for engine type"
+        raise ValueError(msg)
 
     if plot is True:
         plot_line_and_crosses(
@@ -602,7 +600,7 @@ def interp1d_windows_single_col(
                         f" doubling window size to {win/1000}km",
                     )
                 else:  # raise other errors
-                    raise (e)
+                    raise e
 
                 continue
             break
@@ -680,7 +678,6 @@ def interp1d(
     plot_line=False,
     line_col="line",
     dist_col="dist_along_line",
-    **kwargs,
 ):
     """ """
     if line_col is not None:
@@ -765,9 +762,7 @@ def interp1d_all_lines(
         if wait_for_input is True:
             input("Press key to continue...")
 
-    all_lines_filled = pd.concat(filled_lines)
-
-    return all_lines_filled
+    return pd.concat(filled_lines)
 
 
 def calculate_misties(
@@ -921,7 +916,6 @@ def level_lines(
     new_mistie_col=None,
     line_col="line",
     plot=False,
-    robust=True,
 ):
     df = data.copy()
 
@@ -949,9 +943,9 @@ def level_lines(
                 try:
                     line_df = verde_predict_trend(
                         data_to_fit=ints,
-                        cols_to_fit=cols_to_fit + [mistie_col],
+                        cols_to_fit=cols_to_fit + [mistie_col],  # noqa: RUF005
                         data_to_predict=line_df,
-                        cols_to_predict=cols_to_predict + ["levelling_correction"],
+                        cols_to_predict=cols_to_predict + ["levelling_correction"],  # noqa: RUF005
                         degree=degree,
                     )
                 except ValueError as e:
@@ -960,16 +954,16 @@ def level_lines(
                         # if issues, correction is 0
                         line_df["levelling_correction"] = 0
                     else:
-                        raise (e)
+                        raise e
         # if predicting on 1 variable (distance along line) use scikitlearn
         elif len(cols_to_fit) == 1:
             try:
                 line_df = skl_predict_trend(
                     data_to_fit=ints,  # df with mistie values
-                    cols_to_fit=cols_to_fit
+                    cols_to_fit=cols_to_fit  # noqa: RUF005
                     + [mistie_col],  # column names for distance/mistie
                     data_to_predict=line_df,  # df with line data
-                    cols_to_predict=cols_to_predict
+                    cols_to_predict=cols_to_predict  # noqa: RUF005
                     + [
                         "levelling_correction"
                     ],  # column names for distance/ levelling correction
@@ -981,7 +975,7 @@ def level_lines(
                     # if issues, correction is 0
                     line_df["levelling_correction"] = 0
                 else:
-                    raise (e)
+                    raise e
 
         # if levelling tie lines, negate the correction
         if cols_to_fit[0][-1] == "2":
@@ -1287,13 +1281,6 @@ def iterative_levelling_alternate(
     return df, ints
 
 
-"""
-
-PLOTTING FUNCTIONS
-
-"""
-
-
 def plotly_points(
     df,
     coord_names=None,
@@ -1374,7 +1361,7 @@ def plotly_points(
 def plotly_profiles(
     data,
     x="dist_along_line",
-    y=["FAG_levelled"],
+    y=("FAG_levelled"),
     y_axes=None,
     xlims=None,
     ylims=None,
@@ -1391,11 +1378,8 @@ def plotly_profiles(
         y = [y]
 
     # list of y axes to use, if none, all will be same
-    if y_axes is None:
-        y_axes = ["" for _ in y]
-    else:  # convert numbers to strings
-        y_axes = [str(x) for x in y_axes]
-    assert "0" not in y_axes, print("No '0' or 0 allow, axes start with 1")
+    y_axes = ["" for _ in y] if y_axes is None else [str(x) for x in y_axes]
+    assert "0" not in y_axes, "No '0' or 0 allowed, axes start with 1"
     # convert y axes to plotly expected format: "y", "y2", "y3" ...
     y_axes = [s.replace("1", "") for s in y_axes]
     y_axes = [f"y{x}" for x in y_axes]
@@ -1407,13 +1391,13 @@ def plotly_profiles(
         df = df[df[y].between(*ylims)]
 
     # set plotting mode
-    modes = kwargs.get("modes", None)
+    modes = kwargs.get("modes")
     if modes is None:
         modes = ["markers" for _ in y]
 
     # set marker properties
-    marker_sizes = kwargs.get("marker_sizes", None)
-    marker_symbols = kwargs.get("marker_symbols", None)
+    marker_sizes = kwargs.get("marker_sizes")
+    marker_symbols = kwargs.get("marker_symbols")
     if marker_sizes is None:
         marker_sizes = [2 for _ in y]
     if marker_symbols is None:
@@ -1456,7 +1440,7 @@ def plotly_profiles(
         pass
 
     fig.update_layout(
-        title_text=kwargs.get("title", None),
+        title_text=kwargs.get("title"),
         xaxis=dict(
             title=x,
             domain=x_domain,
@@ -1472,7 +1456,7 @@ def plot_line_and_crosses(
     line=None,
     line_col_name="line",
     x="dist_along_line",
-    y=["FAG_levelled"],
+    y=("FAG_levelled"),
     plot_inters=None,
     y_axes=None,
     xlims=None,
@@ -1525,7 +1509,7 @@ def plot_line_and_crosses(
         )
         # convert numbers to strings
         y_axes = [str(x) for x in y_axes]
-        assert "0" not in y_axes, print("No '0' or 0 allow, axes start with 1")
+        assert "0" not in y_axes, "No '0' or 0 allowed, axes start with 1"
         # convert y axes to plotly expected format: "y", "y2", "y3" ...
         y_axes = [s.replace("1", "") for s in y_axes]
         y_axes = [f"y{x}" for x in y_axes]
@@ -1534,10 +1518,7 @@ def plot_line_and_crosses(
             for i, z in enumerate(y):
                 j = 0
                 if plot_inters[i] is True:
-                    if j == 0:
-                        text = df[df.is_intersection].intersecting_line
-                    else:
-                        text = None
+                    text = df[df.is_intersection].intersecting_line if j == 0 else None
                     j += 1
                     fig.add_trace(
                         go.Scatter(
@@ -1620,14 +1601,12 @@ def round_region(region, spacing):
         return spacing * math.floor(x / spacing)
 
     # round down xmin and ymin, and round up xmax and ymax
-    rounded_region = [
+    return [
         round_down(region[0], spacing),
         round_up(region[1], spacing),
         round_up(region[2], spacing),
         round_down(region[3], spacing),
     ]
-
-    return rounded_region
 
 
 def plot_flightlines(
@@ -1668,7 +1647,8 @@ def plot_flightlines(
                     # angle of label
                     angle = 90
                 else:
-                    raise ValueError("invalid direction string")
+                    msg = "invalid direction string"
+                    raise ValueError(msg)
                 # plot label
                 fig.text(
                     x=lines[i].easting.loc[lines[i][x_or_y].idxmax()],
@@ -1694,7 +1674,8 @@ def plot_flightlines(
                     # angle of label
                     angle = 90
                 else:
-                    raise ValueError("invalid direction string")
+                    msg = "invalid direction string"
+                    raise ValueError(msg)
                 # plot label
                 fig.text(
                     x=lines[i].easting.loc[lines[i][x_or_y].idxmin()],
