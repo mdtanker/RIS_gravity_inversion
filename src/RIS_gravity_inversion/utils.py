@@ -4,119 +4,20 @@ import os
 from getpass import getpass
 from pathlib import Path
 
-import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pygmt
 import seaborn as sns
 import verde as vd
 from invert4geom import utils as inv_utils
-from polartoolkit import maps, profiles, utils
+from polartoolkit import profiles, utils
 from requests import get
 
 
-def constraint_layout(
-    num_constraints,
-    shift_stdev,
-    region=None,
-    shapefile=None,
-    plot=False,
-):
-    if shapefile is not None:
-        bounds = gpd.read_file(shapefile).bounds
-        region = [bounds.minx, bounds.maxx, bounds.miny, bounds.maxy]
-        region = [x.values[0] for x in region]
-
-    x = region[1] - region[0]
-    y = region[3] - region[2]
-    num_y = int(np.ceil((num_constraints / (x / y)) ** 0.5))
-
-    fudge_factor = 0
-    while True:
-        num_x = int(np.ceil(num_constraints / num_y)) + fudge_factor
-
-        # create regular grid, with set number of constraint points
-        reg = vd.pad_region(region, -15e3)
-        x = np.linspace(reg[0], reg[1], int(num_x * 1.1))
-        y = np.linspace(reg[2], reg[3], int(num_y * 1.1))
-        coords = np.meshgrid(x, y)
-
-        # turn coordinates into dataarray
-        da = vd.make_xarray_grid(
-            coords,
-            data=np.ones_like(coords[0]) * 1e3,
-            data_names="upward",
-            dims=("northing", "easting"),
-        )
-        # turn dataarray into dataframe
-        df = vd.grid_to_table(da)
-
-        # add randomness to the points
-        rand = np.random.default_rng(seed=0)
-        constraints = df.copy()
-        constraints["northing"] = rand.normal(df.northing, shift_stdev)
-        constraints["easting"] = rand.normal(df.easting, shift_stdev)
-
-        # check whether points are inside or outside of shp
-        if shapefile is not None:
-            gdf = gpd.GeoDataFrame(
-                constraints,
-                geometry=gpd.points_from_xy(
-                    x=constraints.easting, y=constraints.northing
-                ),
-                crs="EPSG:3031",
-            )
-            constraints["inside"] = gdf.within(
-                gpd.read_file("../data/Ross_Sea_outline.shp").geometry[0]
-            )
-            constraints = constraints.drop(columns="geometry")
-        else:
-            constraints["inside"] = True
-
-        # ensure all points are within region
-        constraints = utils.points_inside_region(
-            constraints, region, names=("easting", "northing")
-        )
-
-        # keep only set number of constraints
-        try:
-            constraints = constraints[constraints.inside].sample(
-                n=num_constraints, random_state=0
-            )
-        except ValueError:
-            fudge_factor += 0.1
-        else:
-            break
-
-    if plot:
-        fig = maps.basemap(
-            fig_height=8,
-            region=region,
-        )
-
-        fig.plot(
-            x=constraints.easting,
-            y=constraints.northing,
-            style="c.1c",
-            fill="black",
-        )
-
-        if shapefile is not None:
-            fig.plot(
-                shapefile,
-                pen="0.2p,black",
-            )
-
-        fig.show()
-
-    return constraints
-
-
 def get_buffer_points(
-    buffer_width=10e3,
-    grid=None,
-    mask=None,
+    buffer_width,
+    grid,
+    mask,
     plot=False,
 ):
     """
@@ -125,114 +26,47 @@ def get_buffer_points(
     # get buffered mask
     mask_buffer = mask.buffer(buffer_width)
 
-    # mask grid inside of un-buffered mask
-    grid_masked = utils.mask_from_shp(
+    # get only inside the mask
+    inside_points = utils.mask_from_shp(
         shapefile=mask,
         xr_grid=grid,
         masked=True,
     ).rename("upward")
 
-    # mask grid outside of buffered mask
-    grid_masked_buffer = utils.mask_from_shp(
+    # get between mask and buffer
+    buffer_points = utils.mask_from_shp(
         shapefile=mask_buffer,
-        xr_grid=grid_masked,
+        xr_grid=inside_points,
         masked=True,
         invert=False,
     ).rename("upward")
 
+    # get only outside the buffered-mask
+    outside_points = utils.mask_from_shp(
+        shapefile=mask_buffer,
+        xr_grid=grid,
+        masked=True,
+    ).rename("upward")
+
     # create dataframes from grids
-    grid_df_outside = vd.grid_to_table(grid_masked).dropna()
-    grid_df_buffer = vd.grid_to_table(grid_masked_buffer).dropna()
+    df_outside = vd.grid_to_table(outside_points).dropna()
+    df_buffer = vd.grid_to_table(buffer_points).dropna()
 
-    if plot is True:
-        grid_df_buffer.plot.scatter(x="easting", y="northing")
+    # label points
+    df_outside["inside"] = False
+    df_outside["buffer"] = False
+    df_buffer["inside"] = False
+    df_buffer["buffer"] = True
 
-    return grid_df_buffer, grid_df_outside, grid_masked
-
-
-def create_starting_bed(
-    buffer_and_inside_points,
-    masked_bed,
-    region,
-    spacing,
-    method="spline",
-    damping=1e-50,
-    tension=0,
-    weights_col_name=None,
-    icebase=None,
-    surface=None,
-    plot=False,
-):
-    """
-    Create the interpolated bathymetry grid. Interpolate data from sparse constraints
-    within the ice shelf area (constraints) and grid points within a buffer zone around
-     the ice shelf. Then merge this grid with grid value from outside the ice shelf.
-     Since the interpolation is only conducted with a thin buffer zone, instead of all
-     of the points outside the shelf, the interpolation is much faster.
-    """
-    points = buffer_and_inside_points
-
-    if method == "spline":
-        weights = None if weights_col_name is None else points[weights_col_name]
-
-        coords = (points.easting, points.northing)
-        data = points.upward
-
-        spline = inv_utils.best_spline_cv(
-            coordinates=coords,
-            data=data,
-            weights=weights,
-            dampings=damping,
+    if plot:
+        df_outside.plot.scatter(x="easting", y="northing", s=1, c="r", label="outside")
+        df_buffer.plot.scatter(
+            x="easting", y="northing", s=1, c="b", label="buffer", ax=plt.gca()
         )
+        plt.legend()
+        plt.show()
 
-        inner_bed = spline.grid(
-            region=region,
-            spacing=spacing,
-        ).scalars
-
-        inner_bed = inner_bed.assign_attrs(damping=spline.damping_)
-
-    elif method == "surface":
-        blocked = pygmt.blockmean(
-            data=points[["easting", "northing", "upward"]],
-            region=region,
-            spacing=spacing,
-        )
-
-        inner_bed = pygmt.surface(
-            # points[["easting","northing","upward"]],
-            blocked,
-            spacing=spacing,
-            region=region,
-            registration="g",
-            tension=tension,
-        ).rename({"x": "easting", "y": "northing"})
-
-        inner_bed = inner_bed.assign_attrs(tension=tension)
-
-    # merge interpolation of inner / buffer points with outside grid
-    inner_bed = inner_bed.where(
-        masked_bed.isnull(),
-        masked_bed,
-    )
-
-    # ensure bed doesn't cross ice base or surface
-    inner_bed = ensure_no_crossing(
-        inner_bed,
-        icebase=icebase,
-        surface=surface,
-    )
-
-    if plot is True:
-        fig = maps.plot_grd(
-            inner_bed,
-            points=points[points.inside].rename(
-                columns={"easting": "x", "northing": "y"}
-            ),
-        )
-        fig.show()
-
-    return inner_bed
+    return pd.concat((df_buffer, df_outside))
 
 
 def ensure_no_crossing(
@@ -253,26 +87,6 @@ def ensure_no_crossing(
     return bed
 
 
-def merge_test_train_to_outside(
-    test_train_df,
-    constraints,
-):
-    df = constraints.copy()
-    outside_constraints = df[~df.inside].copy()
-
-    fold_col_names = list(
-        test_train_df.columns[test_train_df.columns.str.startswith("fold_")]
-    )
-
-    # make all outside constraints training points
-    cols = {col: "train" for col in fold_col_names}
-    new_cols = pd.DataFrame(cols, index=outside_constraints.index)
-    outside_constraints = pd.concat([outside_constraints, new_cols], axis=1)
-
-    # merge the outside constraints with the test/train constraints
-    return pd.concat([test_train_df, outside_constraints])
-
-
 def fetch_private_github_file(
     fname, username="mdtanker", fpath="RIS_grav_bath_data/main", output_dir="/data/"
 ):
@@ -291,79 +105,6 @@ def fetch_private_github_file(
         f.write(res.content)
 
     return Path.resolve(out_file)
-
-
-def make_surface(
-    spacing,
-    region,
-    top,
-    checkerboard=True,
-    amplitude=100,
-    wavelength=10e3,
-    plot=True,
-):
-    """
-    Function to create either a flat or checkerboard surface.
-
-    Parameters
-    ----------
-    spacing : float
-        grid spacing
-    region : list
-        region string [e,w,n,s]
-    top : float
-        top for flat surface, or baselevel for checkerboard
-    checkerboard : bool, optional
-        choose whether to return a checkerboard or flat surface, by default True
-    amplitude : int, optional
-        amplitude of checkerboard, by default 100
-    wavelength : float, optional
-        checkerboard wavelength in same units as grid, by default 10,000
-    plot : bool, optional
-        plot the results, by default True
-
-    Returns
-    -------
-    xarray.DataArray
-        the generated surface
-    """
-    # create a surface with repeating checkerboard pattern
-    if checkerboard is True:
-        synth = vd.synthetic.CheckerBoard(
-            amplitude=amplitude,
-            region=region,
-            w_east=wavelength,
-            w_north=wavelength,
-        )
-
-        surface = synth.grid(
-            spacing=spacing, data_names="upward", dims=("northing", "easting")
-        ).upward
-
-        surface += top
-
-    # create grid of coordinates
-    else:
-        coords = vd.grid_coordinates(
-            region=region,
-            spacing=spacing,
-        )
-
-        # create xarray dataarray from coords with a constant value as defined by 'top'
-        surface = vd.make_xarray_grid(
-            coords,
-            np.ones_like(coords[0]) * top,
-            data_names="upward",
-            dims=("northing", "easting"),
-        ).upward
-
-    if plot is True:
-        # plot gravity and percentage contours
-        _fig, ax = plt.subplots()
-        surface.plot(ax=ax, robust=True)
-        ax.set_aspect("equal")
-
-    return surface
 
 
 def gravity_decay_buffer(
@@ -409,16 +150,28 @@ def gravity_decay_buffer(
     # calculate buffer width in terms of number of cells
     buffer_cells = buffer_width / spacing
 
-    # create surface
-    surface = make_surface(
-        spacing=spacing,
-        region=buffer_region,
-        top=top,
-        checkerboard=checkerboard,
-        amplitude=kwargs.get("amplitude", 100),
-        wavelength=kwargs.get("wavelength", 10e3),
-        plot=False,
-    )
+    # create topography
+    if checkerboard:
+        synth = vd.synthetic.CheckerBoard(
+            amplitude=kwargs.get("amplitude", 100),
+            region=buffer_region,
+            w_east=kwargs.get("wavelength", 10e3),
+            w_north=kwargs.get("wavelength", 10e3),
+        )
+
+        surface = synth.grid(
+            spacing=spacing, data_names="upward", dims=("northing", "easting")
+        ).upward
+
+        surface += top
+
+    else:
+        surface = inv_utils.create_topography(
+            method="flat",
+            upwards=top,
+            region=buffer_region,
+            spacing=spacing,
+        )
 
     # define what the reference is
     if density_contrast is True:

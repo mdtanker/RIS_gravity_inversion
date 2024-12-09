@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import itertools
-import math
 import warnings
 
 import geopandas as gpd
@@ -1589,24 +1588,6 @@ def plot_line_and_crosses(
 
         plt.title(f"Line number: {line}")
         plt.show()
-
-
-def round_region(region, spacing):
-    # round a number up to the nearest multiple of spacing
-    def round_up(x, spacing):
-        return spacing * math.ceil(x / spacing)
-
-    # round a number down to the nearest multiple of spacing
-    def round_down(x, spacing):
-        return spacing * math.floor(x / spacing)
-
-    # round down xmin and ymin, and round up xmax and ymax
-    return [
-        round_down(region[0], spacing),
-        round_up(region[1], spacing),
-        round_up(region[2], spacing),
-        round_down(region[3], spacing),
-    ]
 
 
 def plot_flightlines(
