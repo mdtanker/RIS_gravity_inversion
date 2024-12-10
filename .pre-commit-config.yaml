@@ -70,9 +70,7 @@ repos:
       - id: codespell
         name: codespell
         description: Checks for common misspellings in text files.
-        entry:
-          codespell --skip="*.js,*.html,*.css,*.svg,*.ipynb" -L ore
-          --ignore-regex=".*codespell-ignore$"
+        entry: codespell --skip="*.js,*.html,*.css,*.svg,*.ipynb,*.bib" -L ore
         args: [--ignore-words-list, montaj]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
