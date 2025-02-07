@@ -10,18 +10,21 @@ from invert4geom import synthetic as inv_synthetic
 from invert4geom import uncertainty
 from invert4geom import utils as inv_utils
 from polartoolkit import fetch, maps, profiles, utils
-
+import RIS_gravity_inversion.gravity_processing as gravity_processing
 
 def load_synthetic_model(
     spacing: float = 1e3,
+    inversion_region: tuple[float, float, float, float] = (-40e3, 260e3, -1800e3, -1400e3),
     buffer: float = 0,
     zref: float = 0,
     bathymetry_density_contrast: float = 1476,
     basement_density_contrast: float = 100,
     basement: bool = False,
     gravity_noise: float | None = None,
+    gravity_noise_wavelength: float = 50e3,
     plot_topography: bool = True,
     plot_gravity: bool = True,
+    just_topography: bool = False,
 ) -> tuple[xr.DataArray, pd.DataFrame]:
     """
     Function to perform all necessary steps to create a synthetic model for the examples
@@ -46,10 +49,14 @@ def load_synthetic_model(
         default False
     gravity_noise : float | None, optional
         decimal percentage noise level to add to gravity data, by default None
+    gravity_noise_wavelength : float, optional
+        wavelength of noise in km to add to gravity data, by default 50e3
     plot_topography : bool, optional
         plot the topography, by default False
     plot_gravity : bool, optional
         plot the gravity data, by default True
+    just_topography : bool, optional
+        return only the topography, by default False
 
     Returns
     -------
@@ -58,7 +65,7 @@ def load_synthetic_model(
     grav_df : pandas.DataFrame
         the gravity data
     """
-    inversion_region = (-40e3, 260e3, -1800e3, -1400e3)
+    # inversion_region = (-40e3, 260e3, -1800e3, -1400e3)
     registration = "g"
 
     buffer_region = (
@@ -68,10 +75,14 @@ def load_synthetic_model(
     # get Ross Sea bathymetry and basement data
     bathymetry_grid = fetch.ibcso(
         layer="bed",
+        reference="ellipsoid",
         region=buffer_region,
         spacing=spacing,
         registration=registration,
     ).rename({"x": "easting", "y": "northing"})
+
+    if just_topography is True:
+        return  bathymetry_grid, None, None
 
     if basement is True:
         sediment_thickness = fetch.sediment_thickness(
@@ -98,8 +109,6 @@ def load_synthetic_model(
             cmap="rain",
             reverse_cpt=True,
             cbar_label="elevation (m)",
-            # fig=fig,
-            # origin_shift="xshift",
             robust=True,
         )
 
@@ -117,7 +126,6 @@ def load_synthetic_model(
                 fig=fig,
                 origin_shift="xshift",
                 robust=True,
-                # frame=["nSEw", "xaf10000", "yaf10000"],
                 scalebar=True,
                 scale_position="n-.05/-.03",
             )
@@ -200,11 +208,12 @@ def load_synthetic_model(
 
     # contaminate gravity with short and long-wavelength random noise
     if gravity_noise is not None:
+        # long-wavelength noise
         grav_df["noise_free_disturbance"] = grav_df.disturbance
         cont = inv_synthetic.contaminate_with_long_wavelength_noise(
             grav_df.set_index(["northing", "easting"]).to_xarray().disturbance,
             coarsen_factor=None,
-            spacing=50e3,
+            spacing=gravity_noise_wavelength,
             noise_as_percent=False,
             noise=gravity_noise,
         )
@@ -215,11 +224,22 @@ def load_synthetic_model(
             on=["easting", "northing"],
         )
 
-        grav_df["disturbance"], stddev = inv_synthetic.contaminate(
-            grav_df.disturbance, stddev=gravity_noise, percent=False, seed=0
+        # short-wavelength noise
+        cont = inv_synthetic.contaminate_with_long_wavelength_noise(
+            grav_df.set_index(["northing", "easting"]).to_xarray().disturbance,
+            coarsen_factor=None,
+            spacing=spacing*2,
+            noise_as_percent=False,
+            noise=gravity_noise,
+        )
+        df = vd.grid_to_table(cont.rename("disturbance")).reset_index(drop=True)
+        grav_df = pd.merge(  # noqa: PD015
+            grav_df.drop(columns=["disturbance"], errors="ignore"),
+            df,
+            on=["easting", "northing"],
         )
 
-        grav_df["uncert"] = stddev
+        grav_df["uncert"] = gravity_noise
 
     grav_df["gravity_anomaly"] = grav_df.disturbance
 
@@ -234,8 +254,6 @@ def load_synthetic_model(
             hist=True,
             cbar_yoffset=1,
             cbar_label="mGal",
-            # fig=fig,
-            # origin_shift="xshift",
             robust=True,
         )
 
@@ -274,7 +292,6 @@ def load_synthetic_model(
                 grav_grid.disturbance,
                 fig_height=10,
                 plot=True,
-                plot_type="pygmt",
                 grid1_name="Gravity",
                 grid2_name=f"with {gravity_noise} mGal noise",
                 title="Difference",
@@ -300,9 +317,13 @@ def constraint_layout_number(
     region=None,
     shapefile=None,
     padding=None,
+    add_outside_points=False,
+    grid_spacing=None,
     plot=False,
     seed=0,
 ):
+    full_region = region
+
     if shapefile is not None:
         bounds = gpd.read_file(shapefile).bounds
         region = [bounds.minx, bounds.maxx, bounds.miny, bounds.maxy]
@@ -321,7 +342,11 @@ def constraint_layout_number(
     width = region[1] - region[0]
     height = region[3] - region[2]
 
-    if latin_hypercube:
+    if num_constraints == 0:
+        constraints = pd.DataFrame(
+            columns=["easting", "northing", "upward", "inside"]
+        )
+    elif latin_hypercube:
         if num_constraints is None:
             msg = "need to set number of constraints if using latin hypercube"
             raise ValueError(msg)
@@ -350,6 +375,7 @@ def constraint_layout_number(
                 * 1e3,
             }
         )
+
     else:
         fudge_factor = 0
         while True:
@@ -452,17 +478,44 @@ def constraint_layout_number(
 
     constraints = constraints.drop(columns="upward")
 
+    if add_outside_points:
+        constraints["inside"] = True
+
+        # make empty grid
+        coords = vd.grid_coordinates(
+            region=full_region,
+            spacing=grid_spacing,
+            pixel_register=False,
+        )
+        grd = vd.make_xarray_grid(
+            coords,
+            data=np.ones_like(coords[0]) * 1e3,
+            data_names="upward",
+            dims=("northing", "easting"),
+        ).upward
+        # mask to shapefile
+        masked = utils.mask_from_shp(
+            shapefile=shapefile,
+            xr_grid=grd,
+            masked=True,
+        ).rename("upward")
+        outside_constraints = vd.grid_to_table(masked).dropna()
+        outside_constraints.drop(columns="upward", inplace=True)
+        outside_constraints["inside"] = False
+
+        constraints = pd.concat([outside_constraints, constraints], ignore_index=True)
+
     if plot:
         fig = maps.basemap(
             fig_height=8,
-            region=region,
+            region=full_region,
             frame=True,
         )
 
         fig.plot(
             x=constraints.easting,
             y=constraints.northing,
-            style="c.1c",
+            style="c2p",
             fill="black",
         )
 
@@ -617,26 +670,16 @@ def airborne_survey(
         x = np.delete(x, NS_lines_to_remove)
 
     # calculate median spacing
-    NS_points = [[0, i] for i in x]
-    NS_median_spacing = (
-        np.median(
-            vd.median_distance(
-                NS_points,
-                k_nearest=1,
-            )
-        )
-        / 1e3
-    )
-    print(NS_points)
-    print(
-        vd.median_distance(
-            NS_points,
-            k_nearest=1,
-        )
-    )
-    print(x)
-    print(NS_median_spacing)
-
+    # NS_points = [[0, i] for i in x]
+    # NS_median_spacing = (
+    #     np.median(
+    #         vd.median_distance(
+    #             NS_points,
+    #             k_nearest=1,
+    #         )
+    #     )
+    #     / 1e3
+    # )
     coords = np.meshgrid(x, y)
 
     # turn coordinates into dataarray
@@ -648,6 +691,11 @@ def airborne_survey(
     )
     # turn dataarray into dataframe
     df_ties = vd.grid_to_table(ties)
+
+    # give each tie line a number starting at 1000 in increments of 10
+    df_ties["line"] = np.nan
+    for i, j in enumerate(df_ties.easting.unique()):
+        df_ties["line"] = np.where(df_ties.easting==j, 1000+i*10, df_ties.line)
 
     # simulate E-W flight line
     if EW_line_spacing is not None:
@@ -683,8 +731,36 @@ def airborne_survey(
     # turn dataarray into dataframe
     df_lines = vd.grid_to_table(lines)
 
+    # give each line a number starting at 0 in increments of 10
+    df_lines["line"] = np.nan
+    for i, j in enumerate(df_lines.northing.unique()):
+        df_lines["line"] = np.where(df_lines.northing==j, i+1*10, df_lines.line)
+
     # merge dataframes
     df = pd.concat([df_ties, df_lines])
+
+    # add a time column
+    df["time"] = np.nan
+    for i in df.line.unique():
+        if i >= 1000:
+            time = df[df.line==i].sort_values("northing").reset_index().index.values
+        else:
+            time = df[df.line==i].sort_values("easting").reset_index().index.values
+        df.loc[df.line==i, "time"] = time
+
+    # convert to geopandas
+    df = gpd.GeoDataFrame(
+        df,
+        geometry=gpd.points_from_xy(x=df.easting, y=df.northing),
+        crs="EPSG:3031",
+    )
+
+    # calculate distance along each line
+    df["dist_along_line"]=gravity_processing.distance_along_line(
+        df,
+        line_col_name="line",
+        time_col_name="time",
+    )
 
     # calculate median spacing
     # np.median(vd.median_distance(

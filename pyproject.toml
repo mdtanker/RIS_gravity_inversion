@@ -39,6 +39,7 @@ dependencies = [
     "ensaio",
     "pyvista-xarray",
     "boule",
+    "adjusttext",
 ]
 
 [project.optional-dependencies]

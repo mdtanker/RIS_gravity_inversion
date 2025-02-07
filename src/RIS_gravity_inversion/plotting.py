@@ -12,6 +12,7 @@ from invert4geom import uncertainty
 from polartoolkit import utils
 
 import RIS_gravity_inversion.uncertainties as uncert
+import cmocean.cm as cmo
 
 sns.set_theme()
 
@@ -126,6 +127,7 @@ def uncert_plots(
     inversion_region,
     spacing,
     bathymetry,
+    deterministic_bathymetry=None,
     constraint_points=None,
     weight_by=None,
 ):
@@ -151,10 +153,10 @@ def uncert_plots(
     _ = utils.grd_compare(
         bathymetry,
         mean,
-        region=vd.pad_region(inversion_region, -spacing),
+        region=inversion_region,
         plot=True,
         grid1_name="True topography",
-        grid2_name="Inverted topography",
+        grid2_name="Stochastic mean inverted topography",
         robust=True,
         hist=True,
         inset=False,
@@ -169,9 +171,9 @@ def uncert_plots(
     _ = utils.grd_compare(
         np.abs(bathymetry - mean),
         stdev,
-        region=vd.pad_region(inversion_region, -spacing),
+        region=inversion_region,
         plot=True,
-        grid1_name="True error",
+        grid1_name="Stochastic error",
         grid2_name="Stochastic uncertainty",
         cmap="thermal",
         robust=True,
@@ -184,6 +186,27 @@ def uncert_plots(
         points_style="x.3c",
         points_fill="white",
     )
+
+    if deterministic_bathymetry is not None:
+        _ = utils.grd_compare(
+            np.abs(bathymetry - deterministic_bathymetry),
+            stdev,
+            region=inversion_region,
+            plot=True,
+            grid1_name="Deterministic error",
+            grid2_name="Stochastic uncertainty",
+            cmap="thermal",
+            robust=True,
+            hist=True,
+            inset=False,
+            verbose="q",
+            title="difference",
+            grounding_line=False,
+            points=constraint_points,
+            points_style="x.3c",
+            points_fill="white",
+        )
+
     return stats_ds
 
 
@@ -196,7 +219,7 @@ def plot_2var_ensemble(
     y_title=None,
     background="score",
     background_title=None,
-    background_cmap="cmo.matter",
+    background_cmap=cmo.matter,
     background_lims=None,
     background_cpt_lims=None,
     points_color=None,
@@ -206,7 +229,7 @@ def plot_2var_ensemble(
     points_label=None,
     points_title=None,
     points_color_log=False,
-    points_cmap="cmo.gray_r",
+    points_cmap=cmo.gray_r,
     points_lims=None,
     points_edgecolor="black",
     background_color_log=False,
@@ -218,8 +241,10 @@ def plot_2var_ensemble(
     logx=False,
     logy=False,
     flipx=False,
+    cbar_levels=None,
+    colorbar:bool = True,
 ):
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     df = df.copy()
 
     ax.grid(which="major", visible=False)
@@ -244,6 +269,7 @@ def plot_2var_ensemble(
         vmin=background_lims[0],
         vmax=background_lims[1],
         norm=norm,
+        # norm=mpl.colors.BoundaryNorm(np.linspace(background_lims[0], background_lims[1], 10), cmap.N),
         edgecolors="w",
         linewidth=0.5,
         add_colorbar=False,
@@ -252,8 +278,10 @@ def plot_2var_ensemble(
     )
     # ax.set_xticks(ax.get_xticks()[1:-1])
 
-    cbar = fig.colorbar(plot_background, extend="both")
-    cbar.set_label(background_title)
+    if colorbar:
+        cax = fig.add_axes([1, 0.2, 0.05, 0.8])
+        cbar = plt.colorbar(plot_background, extend="both", cax=cax)
+        cbar.set_label(background_title)
 
     if logy:
         ax.set_yscale("log")
@@ -264,6 +292,14 @@ def plot_2var_ensemble(
     # y = df[y].unique()
     # plt.xticks(x[:-1]+0.5)
     # plt.yticks(y[:-1]+0.5)
+    y_ticks = list(df[y].unique()[::2])#.append(df[y].unique()[-1])
+    y_ticks.append(df[y].unique()[-1])
+    ax.set_yticks(y_ticks)
+
+    # x_ticks = list(df[x].unique()[::2])#.append(df[y].unique()[-1])
+    # x_ticks.append(df[x].unique()[-1])
+    # ax.set_xlim(df[x].min(), df[x].max())
+    # ax.set_xticks(x_ticks)
 
     if plot_contours is not None:
         contour = grd.plot.contour(
@@ -271,8 +307,8 @@ def plot_2var_ensemble(
             colors=contour_color,
             ax=ax,
         )
-
-        cbar.add_lines(contour)
+        if colorbar:
+            cbar.add_lines(contour)
 
     if (points_color is not None) or (points_size is not None):
         if points_color is None:
@@ -327,14 +363,15 @@ def plot_2var_ensemble(
                 title=points_size.name,
             )
         if points_share_cmap is False:
-            cbar2 = fig.colorbar(points, extend="both")
-            try:  # noqa: SIM105
-                cbar2.set_label(points_color.name)
-            except AttributeError:
-                pass
-            if points_title is None:
-                points_title = points_label
-            cbar2.set_label(points_title)
+            if colorbar:
+                cbar2 = fig.colorbar(points, extend="both")
+                try:  # noqa: SIM105
+                    cbar2.set_label(points_color.name)
+                except AttributeError:
+                    pass
+                if points_title is None:
+                    points_title = points_label
+                cbar2.set_label(points_title)
         # else:
         #     cbar2 = cbar
 
@@ -372,6 +409,7 @@ def plot_ensemble_as_lines(
     x_label=None,
     y_label="Bathymetry RMSE (m)",
     cbar_label=None,
+    markersize=7,
     logy=False,
     logx=False,
     trend_line=False,
@@ -382,10 +420,19 @@ def plot_ensemble_as_lines(
     plot_title=None,
     slope_min_max=False,
     slope_mean=False,
+    trend_line_text_loc=(0.05, 0.95),
+    flipx=False,
+    colorbar:bool = True,
+    ax = None,
+    plot_elbows=False,
 ):
     sns.set_theme()
 
-    fig, ax1 = plt.subplots(figsize=figsize)
+    if ax is None:
+        fig, ax1 = plt.subplots(figsize=figsize, constrained_layout=False)
+    else:
+        fig, _ = plt.subplots(figsize=figsize, constrained_layout=False)
+        ax1 = ax
 
     grouped = results.groupby(groupby_col)
 
@@ -399,20 +446,36 @@ def plot_ensemble_as_lines(
             group[x],
             group[y],
             ".-",
-            markersize=7,
+            markersize=markersize,
             color=plt.cm.viridis(norm(name)),
         )
         if trend_line and slope_min_max:
             z = np.polyfit(group[x], group[y], 1)
             slopes.append(z[0])
             lines.append(np.poly1d(z)(results[x]))
+        if plot_elbows:
+            from kneebow.rotor import Rotor
+            rotor = Rotor()
+            rotor.fit_rotate(group[[x,y]])
+            elbow_ind = rotor.get_elbow_index()
+            ax1.scatter(
+                x=group.iloc[elbow_ind][x],
+                y=group.iloc[elbow_ind][y],
+                marker="*",
+                edgecolor="black",
+                linewidth=.5,
+                color=plt.cm.viridis(norm(name)),
+                s=60,
+                zorder=20,
+            )
+            print(f"Elbow x value: {group[x].iloc[elbow_ind]}")
 
     if trend_line:
         if slope_min_max:
             text = rf"$min\ slope={min(slopes):.3g}$"
             plt.gca().text(
-                0.05,
-                0.95,
+                trend_line_text_loc[0],
+                trend_line_text_loc[1],
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -422,8 +485,8 @@ def plot_ensemble_as_lines(
 
             text = rf"$max\ slope={max(slopes):.3g}$"
             plt.gca().text(
-                0.05,
-                0.90,
+                trend_line_text_loc[0],
+                trend_line_text_loc[1]-0.05,
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -444,8 +507,8 @@ def plot_ensemble_as_lines(
         if slope_mean:
             text = rf"$mean\ slope={np.median(slopes):.3g}$"
             plt.gca().text(
-                0.05,
-                0.85,
+                trend_line_text_loc[0],
+                trend_line_text_loc[1]-0.1,
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -460,8 +523,8 @@ def plot_ensemble_as_lines(
             ax1.plot(results[x], y_hat, "r", lw=1)
             text = f"$slope={z[0]:.3g}$"
             plt.gca().text(
-                0.05,
-                0.95,
+                trend_line_text_loc[0],
+                trend_line_text_loc[1],
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -469,8 +532,6 @@ def plot_ensemble_as_lines(
             )
 
     sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
-    cbar = plt.colorbar(sm, ax=ax1)
-    cbar.set_label(cbar_label)
 
     if horizontal_line is not None:
         plt.axhline(
@@ -497,11 +558,20 @@ def plot_ensemble_as_lines(
 
     ax1.set_ylabel(y_label)
 
-    if horizontal_line is not None:
+    if (horizontal_line is not None) & (horizontal_line_label is not None):
         plt.legend(loc=horizontal_line_label_loc)
 
+    if flipx:
+        ax1.invert_xaxis()
+
+    if colorbar:
+        # pass
+        cax = fig.add_axes([.93, 0.1, 0.05, 0.8])
+        cbar = plt.colorbar(sm, cax=cax)
+        cbar.set_label(cbar_label)
+
     plt.title(plot_title)
-    plt.tight_layout()
+    # plt.tight_layout()
 
     return fig
 

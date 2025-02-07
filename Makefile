@@ -12,10 +12,10 @@ install:
 remove:
 	mamba remove --name $(PROJECT) --all
 
-conda_install:
+create:
 	mamba env create --file environment.yml --name $(PROJECT)
 
-conda_update:
+update:
 	mamba env update --file environment.yml --name $(PROJECT) --prune
 
 ####
