@@ -16,5 +16,5 @@ dependencies:
   - pylint
   - pip
   - pip:
-    - snakeviz
-    - kneebow
+      - snakeviz
+      - kneebow

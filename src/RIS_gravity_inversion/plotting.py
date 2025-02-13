@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import string
 
+import cmocean.cm as cmo
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import verde as vd
 from invert4geom import uncertainty
 from polartoolkit import utils
 
 import RIS_gravity_inversion.uncertainties as uncert
-import cmocean.cm as cmo
 
 sns.set_theme()
 
@@ -125,7 +124,6 @@ def correlation_plots(z_test, p_val, var_names):
 def uncert_plots(
     results,
     inversion_region,
-    spacing,
     bathymetry,
     deterministic_bathymetry=None,
     constraint_points=None,
@@ -241,8 +239,7 @@ def plot_2var_ensemble(
     logx=False,
     logy=False,
     flipx=False,
-    cbar_levels=None,
-    colorbar:bool = True,
+    colorbar: bool = True,
 ):
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     df = df.copy()
@@ -269,7 +266,10 @@ def plot_2var_ensemble(
         vmin=background_lims[0],
         vmax=background_lims[1],
         norm=norm,
-        # norm=mpl.colors.BoundaryNorm(np.linspace(background_lims[0], background_lims[1], 10), cmap.N),
+        # norm=mpl.colors.BoundaryNorm(
+        #   np.linspace(background_lims[0],
+        #   background_lims[1],
+        #   10), cmap.N),
         edgecolors="w",
         linewidth=0.5,
         add_colorbar=False,
@@ -292,7 +292,7 @@ def plot_2var_ensemble(
     # y = df[y].unique()
     # plt.xticks(x[:-1]+0.5)
     # plt.yticks(y[:-1]+0.5)
-    y_ticks = list(df[y].unique()[::2])#.append(df[y].unique()[-1])
+    y_ticks = list(df[y].unique()[::2])  # .append(df[y].unique()[-1])
     y_ticks.append(df[y].unique()[-1])
     ax.set_yticks(y_ticks)
 
@@ -362,16 +362,15 @@ def plot_2var_ensemble(
                 ncol=3,
                 title=points_size.name,
             )
-        if points_share_cmap is False:
-            if colorbar:
-                cbar2 = fig.colorbar(points, extend="both")
-                try:  # noqa: SIM105
-                    cbar2.set_label(points_color.name)
-                except AttributeError:
-                    pass
-                if points_title is None:
-                    points_title = points_label
-                cbar2.set_label(points_title)
+        if (points_share_cmap is False) and (colorbar):
+            cbar2 = fig.colorbar(points, extend="both")
+            try:  # noqa: SIM105
+                cbar2.set_label(points_color.name)
+            except AttributeError:
+                pass
+            if points_title is None:
+                points_title = points_label
+            cbar2.set_label(points_title)
         # else:
         #     cbar2 = cbar
 
@@ -422,8 +421,8 @@ def plot_ensemble_as_lines(
     slope_mean=False,
     trend_line_text_loc=(0.05, 0.95),
     flipx=False,
-    colorbar:bool = True,
-    ax = None,
+    colorbar: bool = True,
+    ax=None,
     plot_elbows=False,
 ):
     sns.set_theme()
@@ -455,15 +454,16 @@ def plot_ensemble_as_lines(
             lines.append(np.poly1d(z)(results[x]))
         if plot_elbows:
             from kneebow.rotor import Rotor
+
             rotor = Rotor()
-            rotor.fit_rotate(group[[x,y]])
+            rotor.fit_rotate(group[[x, y]])
             elbow_ind = rotor.get_elbow_index()
             ax1.scatter(
                 x=group.iloc[elbow_ind][x],
                 y=group.iloc[elbow_ind][y],
                 marker="*",
                 edgecolor="black",
-                linewidth=.5,
+                linewidth=0.5,
                 color=plt.cm.viridis(norm(name)),
                 s=60,
                 zorder=20,
@@ -486,7 +486,7 @@ def plot_ensemble_as_lines(
             text = rf"$max\ slope={max(slopes):.3g}$"
             plt.gca().text(
                 trend_line_text_loc[0],
-                trend_line_text_loc[1]-0.05,
+                trend_line_text_loc[1] - 0.05,
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -508,7 +508,7 @@ def plot_ensemble_as_lines(
             text = rf"$mean\ slope={np.median(slopes):.3g}$"
             plt.gca().text(
                 trend_line_text_loc[0],
-                trend_line_text_loc[1]-0.1,
+                trend_line_text_loc[1] - 0.1,
                 text,
                 transform=plt.gca().transAxes,
                 fontsize=10,
@@ -566,7 +566,7 @@ def plot_ensemble_as_lines(
 
     if colorbar:
         # pass
-        cax = fig.add_axes([.93, 0.1, 0.05, 0.8])
+        cax = fig.add_axes([0.93, 0.1, 0.05, 0.8])
         cbar = plt.colorbar(sm, cax=cax)
         cbar.set_label(cbar_label)
 

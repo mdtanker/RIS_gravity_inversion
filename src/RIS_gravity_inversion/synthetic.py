@@ -10,11 +10,18 @@ from invert4geom import synthetic as inv_synthetic
 from invert4geom import uncertainty
 from invert4geom import utils as inv_utils
 from polartoolkit import fetch, maps, profiles, utils
+
 import RIS_gravity_inversion.gravity_processing as gravity_processing
+
 
 def load_synthetic_model(
     spacing: float = 1e3,
-    inversion_region: tuple[float, float, float, float] = (-40e3, 260e3, -1800e3, -1400e3),
+    inversion_region: tuple[float, float, float, float] = (
+        -40e3,
+        260e3,
+        -1800e3,
+        -1400e3,
+    ),
     buffer: float = 0,
     zref: float = 0,
     bathymetry_density_contrast: float = 1476,
@@ -82,7 +89,7 @@ def load_synthetic_model(
     ).rename({"x": "easting", "y": "northing"})
 
     if just_topography is True:
-        return  bathymetry_grid, None, None
+        return bathymetry_grid, None, None
 
     if basement is True:
         sediment_thickness = fetch.sediment_thickness(
@@ -228,7 +235,7 @@ def load_synthetic_model(
         cont = inv_synthetic.contaminate_with_long_wavelength_noise(
             grav_df.set_index(["northing", "easting"]).to_xarray().disturbance,
             coarsen_factor=None,
-            spacing=spacing*2,
+            spacing=spacing * 2,
             noise_as_percent=False,
             noise=gravity_noise,
         )
@@ -343,9 +350,7 @@ def constraint_layout_number(
     height = region[3] - region[2]
 
     if num_constraints == 0:
-        constraints = pd.DataFrame(
-            columns=["easting", "northing", "upward", "inside"]
-        )
+        constraints = pd.DataFrame(columns=["easting", "northing", "upward", "inside"])
     elif latin_hypercube:
         if num_constraints is None:
             msg = "need to set number of constraints if using latin hypercube"
@@ -500,7 +505,7 @@ def constraint_layout_number(
             masked=True,
         ).rename("upward")
         outside_constraints = vd.grid_to_table(masked).dropna()
-        outside_constraints.drop(columns="upward", inplace=True)
+        outside_constraints = outside_constraints.drop(columns="upward")
         outside_constraints["inside"] = False
 
         constraints = pd.concat([outside_constraints, constraints], ignore_index=True)
@@ -695,7 +700,7 @@ def airborne_survey(
     # give each tie line a number starting at 1000 in increments of 10
     df_ties["line"] = np.nan
     for i, j in enumerate(df_ties.easting.unique()):
-        df_ties["line"] = np.where(df_ties.easting==j, 1000+i*10, df_ties.line)
+        df_ties["line"] = np.where(df_ties.easting == j, 1000 + i * 10, df_ties.line)
 
     # simulate E-W flight line
     if EW_line_spacing is not None:
@@ -734,7 +739,7 @@ def airborne_survey(
     # give each line a number starting at 0 in increments of 10
     df_lines["line"] = np.nan
     for i, j in enumerate(df_lines.northing.unique()):
-        df_lines["line"] = np.where(df_lines.northing==j, i+1*10, df_lines.line)
+        df_lines["line"] = np.where(df_lines.northing == j, i + 1 * 10, df_lines.line)
 
     # merge dataframes
     df = pd.concat([df_ties, df_lines])
@@ -743,10 +748,10 @@ def airborne_survey(
     df["time"] = np.nan
     for i in df.line.unique():
         if i >= 1000:
-            time = df[df.line==i].sort_values("northing").reset_index().index.values
+            time = df[df.line == i].sort_values("northing").reset_index().index.values
         else:
-            time = df[df.line==i].sort_values("easting").reset_index().index.values
-        df.loc[df.line==i, "time"] = time
+            time = df[df.line == i].sort_values("easting").reset_index().index.values
+        df.loc[df.line == i, "time"] = time
 
     # convert to geopandas
     df = gpd.GeoDataFrame(
@@ -756,7 +761,7 @@ def airborne_survey(
     )
 
     # calculate distance along each line
-    df["dist_along_line"]=gravity_processing.distance_along_line(
+    df["dist_along_line"] = gravity_processing.distance_along_line(
         df,
         line_col_name="line",
         time_col_name="time",
