@@ -37,7 +37,7 @@ dependencies = [
     "requests",
     "xesmf",
     "ensaio",
-    "pyvista-xarray",
+
     "boule",
     "adjusttext",
 ]
