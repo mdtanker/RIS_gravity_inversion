@@ -790,9 +790,9 @@ def interp1d_windows(
     **kwargs,
 ):
     if line_col is not None:
-        assert (
-            len(df[line_col].unique()) <= 1
-        ), "Warning: provided more than 1 flight line"
+        assert len(df[line_col].unique()) <= 1, (
+            "Warning: provided more than 1 flight line"
+        )
 
     if isinstance(to_interp, str):
         to_interp = [to_interp]
@@ -835,9 +835,9 @@ def interp1d(
 ):
     """ """
     if line_col is not None:
-        assert (
-            len(df[line_col].unique()) <= 1
-        ), "Warning: provided more than 1 flight line"
+        assert len(df[line_col].unique()) <= 1, (
+            "Warning: provided more than 1 flight line"
+        )
 
     if isinstance(to_interp, str):
         to_interp = [to_interp]
@@ -1025,7 +1025,7 @@ def calculate_misties(
         past_mistie_col = None
     else:
         mistie_col = f"mistie_{len(cols)}"
-        past_mistie_col = f"mistie_{len(cols)-1}"
+        past_mistie_col = f"mistie_{len(cols) - 1}"
         log.info("Previous mistie column: %s", past_mistie_col)
 
     log.info("New mistie column: %s", mistie_col)
@@ -1439,8 +1439,8 @@ def iterative_line_levelling(
             data_col = starting_data_col
             mistie_col = starting_mistie_col
         else:
-            data_col = f"{levelled_data_prefix}_{i-1}"
-            mistie_col = f"{mistie_prefix}_{i-1}"
+            data_col = f"{levelled_data_prefix}_{i - 1}"
+            mistie_col = f"{mistie_prefix}_{i - 1}"
 
         # with inv_utils.HiddenPrints():
         df, ints = level_lines(
@@ -1532,8 +1532,8 @@ def iterative_levelling_alternate(
             data_col = starting_data_col
             mistie_col = starting_mistie_col
         else:
-            data_col = f"{levelled_data_prefix}_{i-1}t"
-            mistie_col = f"{mistie_prefix}_{i-1}t"
+            data_col = f"{levelled_data_prefix}_{i - 1}t"
+            mistie_col = f"{mistie_prefix}_{i - 1}t"
 
         # level lines to ties
         df, ints = level_lines(

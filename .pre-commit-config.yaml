@@ -7,14 +7,14 @@ exclude: ^(notebooks/misc_notebooks|notebooks/Ross_Ice_Shelf_inversion/|notebook
 
 repos:
   - repo: https://github.com/adamchainz/blacken-docs
-    rev: "1.18.0"
+    rev: "1.20.0"
     hooks:
       - id: blacken-docs
         additional_dependencies: [black==23.7.0]
         exclude: \.md
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.6.9"
+    rev: "v0.15.20"
     hooks:
       - id: ruff
         args: ["--fix", "--show-fixes"]
@@ -23,7 +23,7 @@ repos:
         exclude: \.md
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: "v5.0.0"
+    rev: "v6.0.0"
     hooks:
       - id: check-added-large-files
       - id: check-case-conflict
@@ -65,7 +65,7 @@ repos:
   #         # - data-science-types
 
   - repo: https://github.com/codespell-project/codespell
-    rev: "v2.3.0"
+    rev: "v2.4.2"
     hooks:
       - id: codespell
         name: codespell
@@ -74,7 +74,7 @@ repos:
         args: [--ignore-words-list, montaj]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: "v0.10.0.1"
+    rev: "v0.11.0.1"
     hooks:
       - id: shellcheck
 
@@ -88,13 +88,13 @@ repos:
         exclude: .pre-commit-config.yaml
 
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: "v0.20.2"
+    rev: "v0.25"
     hooks:
       - id: validate-pyproject
         additional_dependencies: ["validate-pyproject-schema-store[all]"]
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: "0.29.3"
+    rev: "0.37.4"
     hooks:
       - id: check-dependabot
       - id: check-github-workflows
