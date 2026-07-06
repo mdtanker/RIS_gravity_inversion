@@ -273,7 +273,7 @@ def gravity_decay_buffer(
             plt.axvline(
                 forward_df.forward_total.max() * p,
                 color=col[i],
-                label=f"{p*100}%",
+                label=f"{p * 100}%",
             )
         plt.xlabel("grav")
         plt.ylabel("count")
