@@ -2,7 +2,7 @@
 
 Here we present a gravity inversion algorithm for modelling bathymetry. This is a non-linear geometric regularized least-squares inversion. Pre-existing bathymetry measurements can be used to constrain the inversion, and a Bayesian approach, via Monte Carlo simulation, is used to estimate uncertainties and sensitivity of the inversion to the various input data and parameters.
 
-The inversion code in `RIS_gravity_inversion` has mostly been migrated to a separate Python package, [Invert4Geom](https://github.com/mdtanker/invert4geom), while some specific functions for the synthetic tests and specific bathymetry applications are retained here. 
+The inversion code in `RIS_gravity_inversion` has mostly been migrated to a separate Python package, [Invert4Geom](https://github.com/mdtanker/invert4geom), while some specific functions for the synthetic tests and specific bathymetry applications are retained here.
 
 Detailed synthetic tests applied to Antarctic bathymetry data as part of a [manuscript submitted to The Cryosphere](https://egusphere.copernicus.org/preprints/2025/egusphere-2025-2380/) have been moved to the following repository: [https://github.com/mdtanker/synthetic_bathymetry_inversion](https://github.com/mdtanker/synthetic_bathymetry_inversion)
 
